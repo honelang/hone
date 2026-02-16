@@ -1,0 +1,77 @@
+[package]
+name = "hone-lang"
+version = "0.2.0"
+edition = "2021"
+description = "A configuration language that compiles to JSON and YAML"
+license = "MIT"
+repository = "https://github.com/honelang/hone"
+homepage = "https://github.com/honelang/hone"
+readme = "README.md"
+keywords = ["configuration", "yaml", "json", "kubernetes", "devops"]
+categories = ["config", "development-tools"]
+exclude = [
+    "editors/",
+    "playground/",
+    "docs/",
+    "hone-wasm/",
+    ".DS_Store",
+]
+
+[features]
+default = ["cli"]
+cli = ["clap", "lsp"]
+lsp = ["tower-lsp", "tokio", "async-trait", "dashmap", "ropey"]
+
+[dependencies]
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+serde_yaml = "0.9"
+
+# Error reporting (Rust/Elm style diagnostics)
+miette = { version = "7.0", features = ["fancy"] }
+thiserror = "1.0"
+
+# CLI (optional)
+clap = { version = "4.4", features = ["derive"], optional = true }
+
+# Ordered maps for deterministic output
+indexmap = { version = "2.0", features = ["serde"] }
+
+# Base64 encoding for built-in functions
+base64 = "0.22"
+
+# SHA256 hashing for build cache
+sha2 = "0.10"
+
+# Regex for pattern matching in schemas
+regex = "1.10"
+
+# Unicode handling
+unicode-segmentation = "1.10"
+
+# LSP support (optional)
+tower-lsp = { version = "0.20", optional = true }
+tokio = { version = "1.35", features = ["full"], optional = true }
+async-trait = { version = "0.1", optional = true }
+dashmap = { version = "6.0", optional = true }
+ropey = { version = "1.6", optional = true }
+
+[dev-dependencies]
+pretty_assertions = "1.4"
+tempfile = "3.8"
+insta = { version = "1.34", features = ["yaml"] }
+
+[[bin]]
+name = "hone"
+path = "src/main.rs"
+required-features = ["cli"]
+
+[lib]
+name = "hone"
+path = "src/lib.rs"
+
+[profile.release]
+lto = true
+strip = true
+codegen-units = 1

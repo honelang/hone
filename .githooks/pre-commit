@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# Pre-commit hook: recompile .github/workflows/*.hone → *.yml
+#
+# Install with: git config core.hooksPath .githooks
+
+set -euo pipefail
+
+changed=0
+
+for hone_file in .github/workflows/*.hone; do
+  [ -f "$hone_file" ] || continue
+
+  # Skip library files that aren't standalone workflows
+  case "$hone_file" in
+    *steps.hone) continue ;;
+  esac
+
+  yml_file="${hone_file%.hone}.yml"
+
+  # Only recompile if the .hone file is staged
+  if git diff --cached --name-only | grep -qF "$hone_file"; then
+    echo "pre-commit: compiling $hone_file → $yml_file"
+    hone compile "$hone_file" --format yaml -o "$yml_file"
+
+    # Prepend generated-file warning
+    header="# AUTO-GENERATED from ${hone_file##*/} — do not edit directly.
+# Source: $hone_file
+#"
+    printf '%s\n' "$header" | cat - "$yml_file" > "$yml_file.tmp"
+    mv "$yml_file.tmp" "$yml_file"
+
+    git add "$yml_file"
+    changed=1
+  fi
+done
+
+if [ "$changed" -eq 1 ]; then
+  echo "pre-commit: workflow YAML updated and staged"
+fi

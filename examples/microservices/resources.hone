@@ -1,0 +1,23 @@
+# Resource limits and requests per component
+#
+# Tuned per service role. Import and reference as res.api, res.worker, etc.
+
+let api = {
+  requests: { cpu: "100m", memory: "256Mi" },
+  limits: { cpu: "1000m", memory: "512Mi" },
+}
+
+let worker = {
+  requests: { cpu: "200m", memory: "512Mi" },
+  limits: { cpu: "2000m", memory: "1Gi" },
+}
+
+let redis = {
+  requests: { cpu: "50m", memory: "64Mi" },
+  limits: { cpu: "200m", memory: "256Mi" },
+}
+
+let postgres = {
+  requests: { cpu: "100m", memory: "256Mi" },
+  limits: { cpu: "1000m", memory: "1Gi" },
+}

@@ -1,0 +1,80 @@
+# Application Configuration
+#
+# Demonstrates: variants, type aliases, schema validation, expect,
+# when/else, string interpolation, assertions.
+#
+# Usage:
+#   hone compile examples/app-config.hone --format yaml
+#   hone compile examples/app-config.hone --format yaml --variant env=production
+#   hone compile examples/app-config.hone --format yaml --variant env=production --set db_host=db.prod.internal
+
+type Port = int(1, 65535)
+
+schema DatabaseConfig {
+  host: string
+  port: Port
+  name: string
+  pool_size: int(1, 100)
+}
+
+schema CacheConfig {
+  enabled: bool
+  ttl: int
+}
+
+schema AppConfig {
+  name: string
+  port: Port
+  log_level: string
+  debug: bool
+  database: DatabaseConfig
+  cache: CacheConfig
+}
+
+use AppConfig
+
+expect args.db_host: string = "localhost"
+
+variant env {
+  default dev {
+    let replicas = 1
+    let debug = true
+    let log_level = "debug"
+    let db_pool = 5
+    let cache_ttl = 60
+  }
+  staging {
+    let replicas = 2
+    let debug = false
+    let log_level = "info"
+    let db_pool = 10
+    let cache_ttl = 300
+  }
+  production {
+    let replicas = 5
+    let debug = false
+    let log_level = "warn"
+    let db_pool = 25
+    let cache_ttl = 3600
+  }
+}
+
+assert db_pool > 0 : "database pool size must be positive"
+assert db_pool <= 100 : "database pool size must not exceed 100"
+
+name: "my-app"
+port: 3000
+log_level: log_level
+debug: debug
+
+database {
+  host: args.db_host
+  port: 5432
+  name: "myapp"
+  pool_size: db_pool
+}
+
+cache {
+  enabled: true
+  ttl: cache_ttl
+}

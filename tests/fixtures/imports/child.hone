@@ -1,0 +1,7 @@
+# Child configuration that inherits from base
+from "./base.hone"
+
+server {
+  debug: true
+  name: "development"
+}

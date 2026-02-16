@@ -1,0 +1,577 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Hone Playground</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    :root {
+      --bg: #1e1e2e;
+      --bg-surface: #181825;
+      --bg-overlay: #313244;
+      --text: #cdd6f4;
+      --text-dim: #a6adc8;
+      --border: #45475a;
+      --accent: #89b4fa;
+      --error: #f38ba8;
+      --success: #a6e3a1;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 16px;
+      background: var(--bg-surface);
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+
+    header h1 {
+      font-size: 18px;
+      font-weight: 600;
+    }
+
+    header h1 span {
+      color: var(--accent);
+    }
+
+    .toolbar {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    select, button {
+      background: var(--bg-overlay);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 4px 10px;
+      font-size: 13px;
+      cursor: pointer;
+    }
+
+    select:hover, button:hover {
+      border-color: var(--accent);
+    }
+
+    button.share {
+      background: var(--accent);
+      color: var(--bg);
+      border: none;
+      font-weight: 500;
+    }
+
+    button.format-btn {
+      background: transparent;
+      border: 1px solid var(--border);
+    }
+
+    button.format-btn:hover {
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+
+    .options-bar {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 4px 16px;
+      background: var(--bg-surface);
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+      font-size: 12px;
+    }
+
+    .options-bar label {
+      color: var(--text-dim);
+    }
+
+    .options-bar input {
+      background: var(--bg-overlay);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 3px;
+      padding: 2px 6px;
+      font-size: 12px;
+      font-family: "JetBrains Mono", "Fira Code", monospace;
+      outline: none;
+    }
+
+    .options-bar input:focus {
+      border-color: var(--accent);
+    }
+
+    .options-bar input::placeholder {
+      color: var(--border);
+    }
+
+    .main {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
+    }
+
+    .pane {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .pane:first-child {
+      border-right: 1px solid var(--border);
+    }
+
+    .pane-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 6px 12px;
+      background: var(--bg-surface);
+      border-bottom: 1px solid var(--border);
+      font-size: 12px;
+      color: var(--text-dim);
+      flex-shrink: 0;
+    }
+
+    .tabs {
+      display: flex;
+      gap: 2px;
+    }
+
+    .tab {
+      padding: 3px 10px;
+      border-radius: 3px;
+      cursor: pointer;
+      font-size: 12px;
+      color: var(--text-dim);
+    }
+
+    .tab.active {
+      background: var(--bg-overlay);
+      color: var(--text);
+    }
+
+    .tab:hover:not(.active) {
+      color: var(--text);
+    }
+
+    textarea {
+      flex: 1;
+      background: var(--bg);
+      color: var(--text);
+      border: none;
+      padding: 12px;
+      font-family: "JetBrains Mono", "Fira Code", "Cascadia Code", "Consolas", monospace;
+      font-size: 14px;
+      line-height: 1.5;
+      resize: none;
+      outline: none;
+      tab-size: 2;
+    }
+
+    #output {
+      flex: 1;
+      background: var(--bg);
+      color: var(--text);
+      padding: 12px;
+      font-family: "JetBrains Mono", "Fira Code", "Cascadia Code", "Consolas", monospace;
+      font-size: 14px;
+      line-height: 1.5;
+      overflow: auto;
+      white-space: pre;
+    }
+
+    #output.error {
+      color: var(--error);
+    }
+
+    .status {
+      font-size: 11px;
+    }
+
+    .status.ok { color: var(--success); }
+    .status.err { color: var(--error); }
+  </style>
+</head>
+<body>
+  <header>
+    <h1><span>Hone</span> Playground</h1>
+    <div class="toolbar">
+      <select id="examples">
+        <option value="">-- Examples --</option>
+        <option value="basics">Basics</option>
+        <option value="kubernetes">Kubernetes Config</option>
+        <option value="schema">Schema Validation</option>
+        <option value="variant">Variants</option>
+        <option value="interpolation">String Interpolation</option>
+        <option value="args">CLI Args (expect)</option>
+      </select>
+      <select id="format">
+        <option value="yaml">YAML</option>
+        <option value="json">JSON</option>
+        <option value="toml">TOML</option>
+        <option value="dotenv">.env</option>
+      </select>
+      <button class="format-btn" onclick="formatCode()">Format</button>
+      <button class="share" onclick="share()">Share</button>
+    </div>
+  </header>
+  <div class="options-bar" id="optionsBar" style="display: none;">
+    <label>Variants:</label>
+    <input type="text" id="variantInput" placeholder='env=production' size="20">
+    <label>Args:</label>
+    <input type="text" id="argsInput" placeholder='port=8080 env=prod' size="25">
+  </div>
+  <div class="main">
+    <div class="pane">
+      <div class="pane-header">
+        <span>Source</span>
+        <span class="status" id="status"></span>
+      </div>
+      <textarea id="source" spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off"></textarea>
+    </div>
+    <div class="pane">
+      <div class="pane-header">
+        <div class="tabs">
+          <div class="tab active" data-format="yaml" onclick="setFormat('yaml')">YAML</div>
+          <div class="tab" data-format="json" onclick="setFormat('json')">JSON</div>
+          <div class="tab" data-format="toml" onclick="setFormat('toml')">TOML</div>
+          <div class="tab" data-format="dotenv" onclick="setFormat('dotenv')">.env</div>
+        </div>
+      </div>
+      <div id="output"></div>
+    </div>
+  </div>
+
+  <script type="module">
+    import init, { compile, format_source } from './pkg/hone_wasm.js';
+
+    let wasm;
+    const sourceEl = document.getElementById('source');
+    const outputEl = document.getElementById('output');
+    const statusEl = document.getElementById('status');
+    const formatSelect = document.getElementById('format');
+    const examplesSelect = document.getElementById('examples');
+    const variantInput = document.getElementById('variantInput');
+    const argsInput = document.getElementById('argsInput');
+    const optionsBar = document.getElementById('optionsBar');
+    let currentFormat = 'yaml';
+    let debounceTimer;
+
+    const EXAMPLES = {
+      basics: `# Hone Basics
+let env = "production"
+let base_port = 8000
+
+app {
+  name: "api-\${env}"
+  port: base_port + 80
+  debug: env != "production"
+  tags: ["web", "api", env]
+}
+
+# Loops
+let services = for name in ["auth", "users", "billing"] {
+  "\${name}-svc": {
+    url: "http://\${name}.\${env}.internal"
+    port: base_port + 1
+  }
+}`,
+      kubernetes: `# Kubernetes Deployment
+let app = "my-app"
+let env = "production"
+let replicas = env == "production" ? 3 : 1
+
+apiVersion: "apps/v1"
+kind: "Deployment"
+metadata {
+  name: "\${app}-\${env}"
+  labels {
+    app: app
+    env: env
+  }
+}
+spec {
+  replicas: replicas
+  selector {
+    matchLabels {
+      app: app
+    }
+  }
+  template {
+    metadata {
+      labels {
+        app: app
+        env: env
+      }
+    }
+    spec {
+      containers: [{
+        name: app
+        image: "registry.example.com/\${app}:latest"
+        ports: [{ containerPort: 8080 }]
+        resources {
+          limits { cpu: "500m", memory: "256Mi" }
+          requests { cpu: "100m", memory: "128Mi" }
+        }
+      }]
+    }
+  }
+}`,
+      schema: `# Schema Validation
+schema Server {
+  host: string
+  port: int(1, 65535)
+  name: string(1, 100)
+  debug?: bool
+}
+
+use Server
+
+host: "api.example.com"
+port: 8080
+name: "production-api"
+debug: false`,
+      variant: `# Variant System
+# Try setting Variants to: env=production
+variant env {
+  default dev {
+    replicas: 1
+    debug: true
+    log_level: "debug"
+    resources {
+      cpu: "100m"
+      memory: "128Mi"
+    }
+  }
+
+  staging {
+    replicas: 2
+    debug: false
+    log_level: "info"
+    resources {
+      cpu: "250m"
+      memory: "256Mi"
+    }
+  }
+
+  production {
+    replicas: 5
+    debug: false
+    log_level: "warn"
+    resources {
+      cpu: "1000m"
+      memory: "1Gi"
+    }
+  }
+}
+
+name: "api-server"
+version: "2.1.0"`,
+      interpolation: `# String Interpolation
+let greeting = "Hello"
+let name = "World"
+
+# Basic interpolation
+message: "\${greeting}, \${name}!"
+
+# Expressions in interpolation
+math: "2 + 2 = \${2 + 2}"
+
+# Nested access
+let config = { host: "localhost", port: 8080 }
+url: "http://\${config.host}:\${config.port}"
+
+# Built-in functions
+encoded: base64_encode("secret-token")
+upper_name: upper(name)
+parts: split("a,b,c", ",")
+joined: join(["x", "y", "z"], "-")`,
+      args: `# CLI Args with expect
+# Try setting Args to: env=prod port=9090
+expect args.env: string
+expect args.port: int = 8080
+expect args.debug: bool = false
+
+host: "api-\${args.env}.example.com"
+port: args.port
+debug: args.debug`
+    };
+
+    // Parse "key=value key2=value2" into a JSON object string
+    function parseKeyValues(str) {
+      if (!str.trim()) return '';
+      const obj = {};
+      const pairs = str.trim().split(/\s+/);
+      for (const pair of pairs) {
+        const eq = pair.indexOf('=');
+        if (eq > 0) {
+          obj[pair.substring(0, eq)] = pair.substring(eq + 1);
+        }
+      }
+      return Object.keys(obj).length > 0 ? JSON.stringify(obj) : '';
+    }
+
+    // Show options bar if source contains variant or expect
+    function updateOptionsBarVisibility() {
+      const source = sourceEl.value;
+      const hasVariant = /\bvariant\b/.test(source);
+      const hasExpect = /\bexpect\b/.test(source);
+      optionsBar.style.display = (hasVariant || hasExpect) ? 'flex' : 'none';
+    }
+
+    async function start() {
+      wasm = await init();
+
+      // Load from URL hash
+      const hash = window.location.hash.slice(1);
+      if (hash) {
+        try {
+          const decoded = atob(hash);
+          const data = JSON.parse(decoded);
+          sourceEl.value = data.s || '';
+          if (data.f) {
+            currentFormat = data.f;
+            formatSelect.value = currentFormat;
+            updateTabs();
+          }
+          if (data.v) variantInput.value = data.v;
+          if (data.a) argsInput.value = data.a;
+        } catch {
+          sourceEl.value = EXAMPLES.basics;
+        }
+      } else {
+        sourceEl.value = EXAMPLES.basics;
+      }
+
+      updateOptionsBarVisibility();
+      doCompile();
+
+      sourceEl.addEventListener('input', () => {
+        updateOptionsBarVisibility();
+        clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(doCompile, 300);
+      });
+
+      // Tab key inserts spaces
+      sourceEl.addEventListener('keydown', (e) => {
+        if (e.key === 'Tab') {
+          e.preventDefault();
+          const start = sourceEl.selectionStart;
+          const end = sourceEl.selectionEnd;
+          sourceEl.value = sourceEl.value.substring(0, start) + '  ' + sourceEl.value.substring(end);
+          sourceEl.selectionStart = sourceEl.selectionEnd = start + 2;
+          updateOptionsBarVisibility();
+          clearTimeout(debounceTimer);
+          debounceTimer = setTimeout(doCompile, 300);
+        }
+      });
+
+      formatSelect.addEventListener('change', () => {
+        currentFormat = formatSelect.value;
+        updateTabs();
+        doCompile();
+      });
+
+      examplesSelect.addEventListener('change', () => {
+        const example = EXAMPLES[examplesSelect.value];
+        if (example) {
+          sourceEl.value = example;
+          updateOptionsBarVisibility();
+          doCompile();
+        }
+        examplesSelect.value = '';
+      });
+
+      // Recompile when variant/args inputs change
+      variantInput.addEventListener('input', () => {
+        clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(doCompile, 300);
+      });
+      argsInput.addEventListener('input', () => {
+        clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(doCompile, 300);
+      });
+    }
+
+    function doCompile() {
+      const source = sourceEl.value;
+      if (!source.trim()) {
+        outputEl.textContent = '';
+        statusEl.textContent = '';
+        statusEl.className = 'status';
+        return;
+      }
+
+      const variantJson = parseKeyValues(variantInput.value);
+      const argsJson = parseKeyValues(argsInput.value);
+      const result = compile(source, currentFormat, variantJson, argsJson);
+
+      if (result.success) {
+        outputEl.textContent = result.output;
+        outputEl.className = '';
+        statusEl.textContent = 'OK';
+        statusEl.className = 'status ok';
+      } else {
+        outputEl.textContent = result.error;
+        outputEl.className = 'error';
+        statusEl.textContent = 'Error';
+        statusEl.className = 'status err';
+      }
+    }
+
+    function updateTabs() {
+      document.querySelectorAll('.tab').forEach(tab => {
+        tab.classList.toggle('active', tab.dataset.format === currentFormat);
+      });
+    }
+
+    window.setFormat = function(fmt) {
+      currentFormat = fmt;
+      formatSelect.value = fmt;
+      updateTabs();
+      doCompile();
+    };
+
+    window.formatCode = function() {
+      const result = format_source(sourceEl.value);
+      if (result.success) {
+        sourceEl.value = result.output;
+        doCompile();
+      }
+    };
+
+    window.share = function() {
+      const data = {
+        s: sourceEl.value,
+        f: currentFormat,
+      };
+      if (variantInput.value.trim()) data.v = variantInput.value;
+      if (argsInput.value.trim()) data.a = argsInput.value;
+      const encoded = btoa(JSON.stringify(data));
+      window.location.hash = encoded;
+      navigator.clipboard.writeText(window.location.href).then(() => {
+        const btn = document.querySelector('.share');
+        btn.textContent = 'Copied!';
+        setTimeout(() => { btn.textContent = 'Share'; }, 2000);
+      });
+    };
+
+    start();
+  </script>
+</body>
+</html>

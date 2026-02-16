@@ -1,0 +1,93 @@
+# github-actions.hone -- GitHub Actions CI workflow
+#
+# Run: hone compile examples/github-actions.hone --format yaml
+
+let node_versions = ["18", "20", "22"]
+let os_list = ["ubuntu-latest"]
+
+# Reusable step patterns
+let checkout = {
+    name: "Checkout code",
+    uses: "actions/checkout@v4",
+}
+
+let setup_node = {
+    name: "Set up Node.js",
+    uses: "actions/setup-node@v4",
+    with: {
+        "node-version": '${{ matrix.node-version }}',
+        cache: "npm",
+    }
+}
+
+let install_deps = {
+    name: "Install dependencies",
+    run: "npm ci",
+}
+
+name: "CI"
+
+on {
+    push {
+        branches: ["main"]
+    }
+    pull_request {
+        branches: ["main"]
+    }
+}
+
+jobs {
+    lint {
+        name: "Lint"
+        "runs-on": "ubuntu-latest"
+        steps: [
+            checkout,
+            { ...setup_node, with: { "node-version": "20", cache: "npm" } },
+            install_deps,
+            { name: "Run linter", run: "npm run lint" },
+        ]
+    }
+
+    test {
+        name: "Test"
+        "runs-on": '${{ matrix.os }}'
+        needs: ["lint"]
+        strategy {
+            matrix {
+                "node-version": node_versions
+                os: os_list
+            }
+        }
+        steps: [
+            checkout,
+            setup_node,
+            install_deps,
+            { name: "Run tests", run: "npm test" },
+            {
+                name: "Upload coverage",
+                uses: "codecov/codecov-action@v3",
+                "if": "matrix.node-version == '20'",
+            }
+        ]
+    }
+
+    build {
+        name: "Build"
+        "runs-on": "ubuntu-latest"
+        needs: ["test"]
+        steps: [
+            checkout,
+            { ...setup_node, with: { "node-version": "20", cache: "npm" } },
+            install_deps,
+            { name: "Build", run: "npm run build" },
+            {
+                name: "Upload artifact",
+                uses: "actions/upload-artifact@v4",
+                with: {
+                    name: "build-output",
+                    path: "dist/",
+                }
+            }
+        ]
+    }
+}

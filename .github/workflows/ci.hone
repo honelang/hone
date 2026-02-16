@@ -1,0 +1,47 @@
+# CI Workflow — compiled to ci.yml
+#
+# This is the source of truth. Edit this file, then run:
+#   hone compile .github/workflows/ci.hone --format yaml -o .github/workflows/ci.yml
+#
+# The CI itself verifies that ci.yml matches what this file produces.
+
+import "./steps.hone" as steps
+
+name: "CI"
+on: ["push", "pull_request"]
+
+env {
+  CARGO_TERM_COLOR: "always"
+}
+
+jobs {
+  test {
+    "runs-on": "ubuntu-latest"
+    steps: [
+      ...steps.rust_setup,
+
+      { name: "Check", run: "cargo check --all-targets" },
+      { name: "Test", run: "cargo test" },
+      { name: "Clippy", run: "cargo clippy -- -D warnings" },
+      { name: "Format check", run: "cargo fmt -- --check" },
+      { name: "Build release", run: "cargo build --release" },
+      { name: "Verify examples", run: steps.verify_examples },
+      { name: "Verify stdin", run: "echo 'name: \"test\"' | ./target/release/hone compile - --format yaml" },
+      { name: "Verify version", run: "./target/release/hone --version" },
+      { name: "Dogfood: verify CI workflow matches Hone source", run: steps.dogfood_check },
+    ]
+  }
+
+  wasm {
+    "runs-on": "ubuntu-latest"
+    steps: [
+      steps.checkout,
+      {
+        uses: "dtolnay/rust-toolchain@stable",
+        with: { targets: "wasm32-unknown-unknown" },
+      },
+      steps.wasm_rust_cache,
+      { name: "Build WASM", run: "cd hone-wasm && cargo build --release --target wasm32-unknown-unknown" },
+    ]
+  }
+}

@@ -1,0 +1,36 @@
+# Reusable steps and scripts for CI workflows
+#
+# Import as: import "./steps.hone" as steps
+
+# ── Action steps ──────────────────────────────────────────────
+
+let checkout = { uses: "actions/checkout@v4" }
+let rust_toolchain = { uses: "dtolnay/rust-toolchain@stable" }
+let rust_cache = { uses: "Swatinem/rust-cache@v2" }
+let wasm_rust_cache = { uses: "Swatinem/rust-cache@v2", with: { workspaces: "hone-wasm" } }
+
+let rust_setup = [checkout, rust_toolchain, rust_cache]
+
+# ── Scripts ───────────────────────────────────────────────────
+
+let verify_examples = """
+for f in examples/*.hone; do
+  echo "  Compiling $f..."
+  ./target/release/hone compile "$f" --format yaml > /dev/null
+done
+tmpdir=$(mktemp -d)
+echo "  Compiling examples/microservices/main.hone..."
+./target/release/hone compile examples/microservices/main.hone --format yaml --output-dir "$tmpdir"
+rm -rf "$tmpdir"
+echo "  Compiling examples/ci-pipeline/main.hone..."
+./target/release/hone compile examples/ci-pipeline/main.hone --format yaml > /dev/null
+"""
+
+let dogfood_check = """
+./target/release/hone compile .github/workflows/ci.hone --format yaml > /tmp/ci-check.yml
+# Strip the auto-generated header (first 3 lines) before comparing
+tail -n +4 .github/workflows/ci.yml > /tmp/ci-current.yml
+# Normalize trailing newlines before diff
+sed -i -e '$a\' /tmp/ci-current.yml /tmp/ci-check.yml
+diff -u /tmp/ci-current.yml /tmp/ci-check.yml || (echo "ci.yml is out of date! Recompile from ci.hone" && exit 1)
+"""

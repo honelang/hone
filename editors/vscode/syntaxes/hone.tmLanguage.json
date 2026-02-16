@@ -1,0 +1,190 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Hone",
+  "scopeName": "source.hone",
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#keywords" },
+    { "include": "#strings" },
+    { "include": "#numbers" },
+    { "include": "#constants" },
+    { "include": "#operators" },
+    { "include": "#functions" },
+    { "include": "#variables" },
+    { "include": "#annotations" },
+    { "include": "#punctuation" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.number-sign.hone",
+          "match": "#.*$"
+        }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.hone",
+          "match": "\\b(let|when|for|in|else|import|from|as|assert|schema|type|use|extends|variant|expect)\\b"
+        },
+        {
+          "name": "storage.type.hone",
+          "match": "\\b(string|int|float|bool|null|any|number|object|array)\\b"
+        }
+      ]
+    },
+    "strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.triple.hone",
+          "begin": "\"\"\"",
+          "end": "\"\"\"",
+          "patterns": [
+            {
+              "name": "variable.other.interpolation.hone",
+              "begin": "\\$\\{",
+              "end": "\\}",
+              "patterns": [
+                { "include": "#variables" },
+                { "include": "#operators" }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "string.quoted.double.hone",
+          "begin": "\"",
+          "end": "\"",
+          "patterns": [
+            {
+              "name": "constant.character.escape.hone",
+              "match": "\\\\."
+            },
+            {
+              "name": "variable.other.interpolation.hone",
+              "begin": "\\$\\{",
+              "end": "\\}",
+              "patterns": [
+                { "include": "#variables" },
+                { "include": "#operators" }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "string.quoted.single.hone",
+          "begin": "'",
+          "end": "'",
+          "patterns": [
+            {
+              "name": "constant.character.escape.hone",
+              "match": "\\\\."
+            }
+          ]
+        }
+      ]
+    },
+    "numbers": {
+      "patterns": [
+        {
+          "name": "constant.numeric.float.hone",
+          "match": "\\b\\d+\\.\\d+([eE][+-]?\\d+)?\\b"
+        },
+        {
+          "name": "constant.numeric.integer.hone",
+          "match": "\\b\\d+\\b"
+        }
+      ]
+    },
+    "constants": {
+      "patterns": [
+        {
+          "name": "constant.language.boolean.hone",
+          "match": "\\b(true|false)\\b"
+        },
+        {
+          "name": "constant.language.null.hone",
+          "match": "\\b(null)\\b"
+        }
+      ]
+    },
+    "operators": {
+      "patterns": [
+        {
+          "name": "keyword.operator.comparison.hone",
+          "match": "(==|!=|<=|>=|<|>)"
+        },
+        {
+          "name": "keyword.operator.logical.hone",
+          "match": "(&&|\\|\\||!)"
+        },
+        {
+          "name": "keyword.operator.arithmetic.hone",
+          "match": "(\\+|\\-|\\*|/|%)"
+        },
+        {
+          "name": "keyword.operator.assignment.hone",
+          "match": "(:|\\.\\.\\.)"
+        },
+        {
+          "name": "keyword.operator.ternary.hone",
+          "match": "(\\?|:)"
+        },
+        {
+          "name": "keyword.operator.nullcoalesce.hone",
+          "match": "\\?\\?"
+        },
+        {
+          "name": "keyword.operator.append.hone",
+          "match": "\\+:"
+        },
+        {
+          "name": "keyword.operator.replace.hone",
+          "match": "!:"
+        }
+      ]
+    },
+    "functions": {
+      "patterns": [
+        {
+          "name": "support.function.builtin.hone",
+          "match": "\\b(len|keys|values|contains|range|merge|upper|lower|trim|split|join|replace|concat|flatten|default|to_str|to_int|to_float|to_bool|to_json|from_json|base64_encode|base64_decode|env|file)\\b"
+        }
+      ]
+    },
+    "variables": {
+      "patterns": [
+        {
+          "name": "variable.other.hone",
+          "match": "\\b[a-zA-Z_][a-zA-Z0-9_]*\\b"
+        }
+      ]
+    },
+    "annotations": {
+      "patterns": [
+        {
+          "name": "storage.modifier.annotation.hone",
+          "match": "@unchecked"
+        }
+      ]
+    },
+    "punctuation": {
+      "patterns": [
+        {
+          "name": "punctuation.definition.block.hone",
+          "match": "[{}]"
+        },
+        {
+          "name": "punctuation.definition.array.hone",
+          "match": "[\\[\\]]"
+        },
+        {
+          "name": "punctuation.separator.hone",
+          "match": "[,]"
+        }
+      ]
+    }
+  }
+}

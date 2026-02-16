@@ -1,0 +1,50 @@
+# Complete example testing all lexer features
+let env = "production"
+let base_port = 8000
+
+server {
+  host: "localhost"
+  port: base_port + 1
+  name: "api-${env}"
+  ssl: true
+  timeout_ms: 30000
+
+  # Nested block
+  config {
+    debug: false
+    log_level: "info"
+  }
+}
+
+# Array example
+ports: [80, 443, 8080]
+
+# Multi-line string
+script: """
+  #!/bin/bash
+  echo "Hello"
+  """
+
+# Conditional
+when env == "production" {
+  replicas: 3
+}
+
+# For loop
+containers: [
+  for i in [1, 2, 3] {
+    name: "worker-${i}"
+  }
+]
+
+# Type annotation
+port: 8080 @int(1, 65535)
+
+# Document separator
+---deployment
+apiVersion: "apps/v1"
+kind: "Deployment"
+
+---service
+apiVersion: "v1"
+kind: "Service"

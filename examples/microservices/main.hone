@@ -1,0 +1,317 @@
+# Microservices Stack — Kubernetes Manifests
+#
+# A complete multi-service deployment: API server, background worker,
+# Redis cache, and Postgres database. Demonstrates imports, variants,
+# schemas, loops, deep merging, and multi-document output.
+#
+# Run:
+#   hone compile examples/microservices/main.hone --format yaml
+#   hone compile examples/microservices/main.hone --format yaml --variant env=production
+#   hone compile examples/microservices/main.hone --format yaml --variant env=staging --set image_tag=v2.0.0
+#   hone compile examples/microservices/main.hone --format yaml --output-dir ./manifests
+
+import "./config.hone" as config
+import "./resources.hone" as res
+import "./schemas.hone" as schemas
+
+# Validate the final output
+use Stack
+
+# Accept an image tag override from the CLI
+expect args.image_tag: string = config.version
+
+# Environment variants
+variant env {
+  default dev {
+    let api_replicas = 1
+    let worker_replicas = 1
+    let log_level = "debug"
+    let redis_storage = "1Gi"
+    let pg_storage = "5Gi"
+    let pg_replicas = 1
+  }
+  staging {
+    let api_replicas = 2
+    let worker_replicas = 2
+    let log_level = "info"
+    let redis_storage = "5Gi"
+    let pg_storage = "20Gi"
+    let pg_replicas = 1
+  }
+  production {
+    let api_replicas = 5
+    let worker_replicas = 3
+    let log_level = "warn"
+    let redis_storage = "10Gi"
+    let pg_storage = "100Gi"
+    let pg_replicas = 3
+  }
+}
+
+# Shared labels applied to every resource
+let common_labels = {
+  "app.kubernetes.io/part-of": config.app_name,
+  "app.kubernetes.io/version": args.image_tag,
+  "app.kubernetes.io/managed-by": "hone",
+}
+
+# Helper: build a container spec
+let make_container = {
+  name: config.app_name,
+  image: "${config.registry}/${config.app_name}:${args.image_tag}",
+  imagePullPolicy: "IfNotPresent",
+}
+
+# ─── API Server ───────────────────────────────────────────────
+
+---api-deployment
+apiVersion: "apps/v1"
+kind: "Deployment"
+metadata {
+  name: "${config.app_name}-api"
+  namespace: config.namespace
+  labels {
+    ...common_labels
+    "app.kubernetes.io/component": "api"
+  }
+}
+spec {
+  replicas: api_replicas
+  selector {
+    matchLabels {
+      "app.kubernetes.io/name": "${config.app_name}-api"
+    }
+  }
+  template {
+    metadata {
+      labels {
+        ...common_labels
+        "app.kubernetes.io/name": "${config.app_name}-api"
+        "app.kubernetes.io/component": "api"
+      }
+    }
+    spec {
+      containers: [{
+        ...make_container,
+        name: "api",
+        command: ["./server", "--mode", "api"],
+        ports: [{ containerPort: config.api_port, protocol: "TCP" }],
+        env: [
+          { name: "LOG_LEVEL", value: log_level },
+          { name: "PORT", value: to_str(config.api_port) },
+          { name: "REDIS_URL", value: "redis://${config.app_name}-redis:6379" },
+          { name: "DATABASE_URL", valueFrom: { secretKeyRef: { name: "${config.app_name}-secrets", key: "database-url" } } },
+        ],
+        resources: res.api,
+        readinessProbe: {
+          httpGet: { path: "/healthz", port: config.api_port },
+          initialDelaySeconds: 5,
+          periodSeconds: 10,
+        },
+        livenessProbe: {
+          httpGet: { path: "/healthz", port: config.api_port },
+          initialDelaySeconds: 15,
+          periodSeconds: 20,
+        },
+      }]
+    }
+  }
+}
+
+---api-service
+apiVersion: "v1"
+kind: "Service"
+metadata {
+  name: "${config.app_name}-api"
+  namespace: config.namespace
+  labels {
+    ...common_labels
+    "app.kubernetes.io/component": "api"
+  }
+}
+spec {
+  selector {
+    "app.kubernetes.io/name": "${config.app_name}-api"
+  }
+  ports: [{
+    name: "http",
+    port: 80,
+    targetPort: config.api_port,
+    protocol: "TCP",
+  }]
+}
+
+# ─── Background Worker ────────────────────────────────────────
+
+---worker-deployment
+apiVersion: "apps/v1"
+kind: "Deployment"
+metadata {
+  name: "${config.app_name}-worker"
+  namespace: config.namespace
+  labels {
+    ...common_labels
+    "app.kubernetes.io/component": "worker"
+  }
+}
+spec {
+  replicas: worker_replicas
+  selector {
+    matchLabels {
+      "app.kubernetes.io/name": "${config.app_name}-worker"
+    }
+  }
+  template {
+    metadata {
+      labels {
+        ...common_labels
+        "app.kubernetes.io/name": "${config.app_name}-worker"
+        "app.kubernetes.io/component": "worker"
+      }
+    }
+    spec {
+      containers: [{
+        ...make_container,
+        name: "worker",
+        command: ["./server", "--mode", "worker"],
+        env: [
+          { name: "LOG_LEVEL", value: log_level },
+          { name: "REDIS_URL", value: "redis://${config.app_name}-redis:6379" },
+          { name: "DATABASE_URL", valueFrom: { secretKeyRef: { name: "${config.app_name}-secrets", key: "database-url" } } },
+        ],
+        resources: res.worker,
+      }]
+    }
+  }
+}
+
+# ─── Redis ────────────────────────────────────────────────────
+
+---redis
+apiVersion: "apps/v1"
+kind: "StatefulSet"
+metadata {
+  name: "${config.app_name}-redis"
+  namespace: config.namespace
+  labels {
+    ...common_labels
+    "app.kubernetes.io/component": "cache"
+  }
+}
+spec {
+  serviceName: "${config.app_name}-redis"
+  replicas: 1
+  selector {
+    matchLabels {
+      "app.kubernetes.io/name": "${config.app_name}-redis"
+    }
+  }
+  template {
+    metadata {
+      labels {
+        ...common_labels
+        "app.kubernetes.io/name": "${config.app_name}-redis"
+        "app.kubernetes.io/component": "cache"
+      }
+    }
+    spec {
+      containers: [{
+        name: "redis",
+        image: "redis:7-alpine",
+        ports: [{ containerPort: 6379 }],
+        resources: res.redis,
+        volumeMounts: [{ name: "data", mountPath: "/data" }],
+      }]
+    }
+  }
+  volumeClaimTemplates: [{
+    metadata: { name: "data" },
+    spec: {
+      accessModes: ["ReadWriteOnce"],
+      resources: { requests: { storage: redis_storage } },
+    },
+  }]
+}
+
+---redis-service
+apiVersion: "v1"
+kind: "Service"
+metadata {
+  name: "${config.app_name}-redis"
+  namespace: config.namespace
+}
+spec {
+  selector {
+    "app.kubernetes.io/name": "${config.app_name}-redis"
+  }
+  ports: [{ port: 6379, targetPort: 6379 }]
+  clusterIP: "None"
+}
+
+# ─── Postgres ─────────────────────────────────────────────────
+
+---postgres
+apiVersion: "apps/v1"
+kind: "StatefulSet"
+metadata {
+  name: "${config.app_name}-postgres"
+  namespace: config.namespace
+  labels {
+    ...common_labels
+    "app.kubernetes.io/component": "database"
+  }
+}
+spec {
+  serviceName: "${config.app_name}-postgres"
+  replicas: pg_replicas
+  selector {
+    matchLabels {
+      "app.kubernetes.io/name": "${config.app_name}-postgres"
+    }
+  }
+  template {
+    metadata {
+      labels {
+        ...common_labels
+        "app.kubernetes.io/name": "${config.app_name}-postgres"
+        "app.kubernetes.io/component": "database"
+      }
+    }
+    spec {
+      containers: [{
+        name: "postgres",
+        image: "postgres:16-alpine",
+        ports: [{ containerPort: 5432 }],
+        env: [
+          { name: "POSTGRES_DB", value: config.app_name },
+          { name: "POSTGRES_USER", valueFrom: { secretKeyRef: { name: "${config.app_name}-secrets", key: "pg-user" } } },
+          { name: "POSTGRES_PASSWORD", valueFrom: { secretKeyRef: { name: "${config.app_name}-secrets", key: "pg-password" } } },
+        ],
+        resources: res.postgres,
+        volumeMounts: [{ name: "pgdata", mountPath: "/var/lib/postgresql/data" }],
+      }]
+    }
+  }
+  volumeClaimTemplates: [{
+    metadata: { name: "pgdata" },
+    spec: {
+      accessModes: ["ReadWriteOnce"],
+      resources: { requests: { storage: pg_storage } },
+    },
+  }]
+}
+
+---postgres-service
+apiVersion: "v1"
+kind: "Service"
+metadata {
+  name: "${config.app_name}-postgres"
+  namespace: config.namespace
+}
+spec {
+  selector {
+    "app.kubernetes.io/name": "${config.app_name}-postgres"
+  }
+  ports: [{ port: 5432, targetPort: 5432 }]
+  clusterIP: "None"
+}

@@ -1,0 +1,119 @@
+# Release Workflow — compiled to release.yml
+#
+# Triggered by pushing a version tag (v*). Builds binaries for Linux x64,
+# macOS x64, macOS ARM64, and Windows, then creates a GitHub release.
+#
+# This is the source of truth. Edit this file, then run:
+#   hone compile .github/workflows/release.hone --format yaml -o .github/workflows/release.yml
+
+import "./steps.hone" as steps
+
+# ── Build targets ─────────────────────────────────────────────
+
+let targets = [
+  { target: "x86_64-unknown-linux-gnu",  os: "ubuntu-latest",  archive: "tar.gz" },
+  { target: "x86_64-apple-darwin",       os: "macos-latest",   archive: "tar.gz" },
+  { target: "aarch64-apple-darwin",      os: "macos-latest",   archive: "tar.gz" },
+  { target: "x86_64-pc-windows-msvc",    os: "windows-latest", archive: "zip" },
+]
+
+let matrix_include = for t in targets {
+  { target: t.target, os: t.os, archive: t.archive }
+}
+
+# ── Workflow ──────────────────────────────────────────────────
+
+name: "Release"
+
+on {
+  push {
+    tags: ["v*"]
+  }
+}
+
+permissions {
+  contents: "write"
+}
+
+env {
+  CARGO_TERM_COLOR: "always"
+}
+
+jobs {
+  build {
+    strategy {
+      matrix {
+        include: matrix_include
+      }
+    }
+
+    "runs-on": '${{ matrix.os }}'
+
+    steps: [
+      steps.checkout,
+
+      {
+        uses: "dtolnay/rust-toolchain@stable",
+        with: { targets: '${{ matrix.target }}' },
+      },
+
+      {
+        name: "Build",
+        run: 'cargo build --release --target ${{ matrix.target }}',
+      },
+
+      {
+        name: "Package (Unix)",
+        "if": "matrix.archive == 'tar.gz'",
+        run: join([
+          'cd target/${{ matrix.target }}/release',
+          'tar czf ../../../hone-${{ matrix.target }}.tar.gz hone',
+          'cd ../../..',
+        ], "\n"),
+      },
+
+      {
+        name: "Package (Windows)",
+        "if": "matrix.archive == 'zip'",
+        shell: "bash",
+        run: join([
+          'cd target/${{ matrix.target }}/release',
+          '7z a ../../../hone-${{ matrix.target }}.zip hone.exe',
+          'cd ../../..',
+        ], "\n"),
+      },
+
+      {
+        name: "Upload artifact",
+        uses: "actions/upload-artifact@v4",
+        with: {
+          name: 'hone-${{ matrix.target }}',
+          path: 'hone-${{ matrix.target }}.${{ matrix.archive }}',
+        },
+      },
+    ]
+  }
+
+  release {
+    needs: ["build"]
+    "runs-on": "ubuntu-latest"
+    steps: [
+      steps.checkout,
+
+      {
+        name: "Download all artifacts",
+        uses: "actions/download-artifact@v4",
+        with: { path: "artifacts" },
+      },
+
+      {
+        name: "Create release",
+        uses: "softprops/action-gh-release@v2",
+        with: {
+          generate_release_notes: true,
+          files: "artifacts/**/*",
+        },
+      },
+    ]
+  }
+}

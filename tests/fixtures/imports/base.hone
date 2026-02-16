@@ -1,0 +1,9 @@
+# Base configuration that other files inherit from
+let default_port = 8080
+let default_host = "localhost"
+
+server {
+  host: default_host
+  port: default_port
+  debug: false
+}

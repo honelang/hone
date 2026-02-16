@@ -1,0 +1,16 @@
+# Shared configuration values
+#
+# Central place for names, versions, and settings shared across all manifests.
+# Type aliases constrain values at compile time — catch typos before deploy.
+
+type Port = int(1, 65535)
+type Replicas = int(1, 50)
+type SemVer = string("[0-9]+\\.[0-9]+\\.[0-9]+")
+type K8sName = string(1, 63)
+type StorageSize = string("[0-9]+[KMGT]i")
+
+let app_name = "catapult"
+let namespace = "catapult"
+let version = "1.2.0"
+let registry = "ghcr.io/catapult-platform"
+let api_port = 8080

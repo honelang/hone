@@ -1,0 +1,7 @@
+# Main configuration that uses imports
+import "./utils.hone" as utils
+
+server {
+  port: utils.ports.api
+  timeout: utils.timeouts.medium
+}

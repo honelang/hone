@@ -1,0 +1,12 @@
+# hello.hone -- Your first Hone file
+#
+# Run: hone compile examples/hello.hone
+# Run: hone compile examples/hello.hone --format yaml
+
+let greeting = "Hello"
+let target = "World"
+
+message: "${greeting}, ${target}"
+version: 1
+enabled: true
+tags: ["intro", "example"]

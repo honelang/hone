@@ -1,0 +1,7 @@
+# Configuration using named imports
+import { ports, timeouts } from "./utils.hone"
+
+server {
+  port: ports.https
+  timeout: timeouts.long
+}

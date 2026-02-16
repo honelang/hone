@@ -1,0 +1,12 @@
+# Utility definitions for importing
+let ports = {
+  http: 80
+  https: 443
+  api: 8080
+}
+
+let timeouts = {
+  short: 1000
+  medium: 5000
+  long: 30000
+}

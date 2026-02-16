@@ -1,0 +1,9 @@
+/target
+.DS_Store
+editors/vscode/node_modules/
+editors/vscode/out/
+playground/pkg/
+hone-wasm/target/
+hone-wasm/pkg/
+*.vsix
+.claude/

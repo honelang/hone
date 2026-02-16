@@ -1,0 +1,57 @@
+# kubernetes.hone -- Kubernetes Deployment manifest
+#
+# Run:  hone compile examples/kubernetes.hone --format yaml --set env=development
+# Try:  hone compile examples/kubernetes.hone --format yaml --set env=production
+# Tip:  Use multi-document output (---name) for Deployment + Service in one file.
+
+expect args.env: string = "development"
+
+let app = "web-api"
+let image = "myregistry/web-api"
+let version = "1.4.2"
+
+let labels = {
+    "app.kubernetes.io/name": app,
+    "app.kubernetes.io/version": version,
+    environment: args.env,
+}
+
+apiVersion: "apps/v1"
+kind: "Deployment"
+metadata {
+    name: app
+    labels: labels
+}
+spec {
+    when args.env == "production" {
+        replicas: 3
+    } else {
+        replicas: 1
+    }
+    selector {
+        matchLabels {
+            "app.kubernetes.io/name": app
+        }
+    }
+    template {
+        metadata {
+            labels: labels
+        }
+        spec {
+            containers: [
+                {
+                    name: app,
+                    image: "${image}:${version}",
+                    ports: [{ containerPort: 8080, protocol: "TCP" }],
+                    env: [
+                        { name: "APP_ENV", value: args.env },
+                    ],
+                    resources: {
+                        requests: { cpu: "100m", memory: "128Mi" },
+                        limits: { cpu: "500m", memory: "512Mi" },
+                    },
+                }
+            ]
+        }
+    }
+}

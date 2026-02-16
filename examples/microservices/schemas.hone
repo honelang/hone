@@ -1,0 +1,32 @@
+# Schema definitions for the microservices stack output
+#
+# Validates the shape of each Kubernetes manifest document.
+# Uses type aliases from config.hone for constrained fields.
+
+import "./config.hone" as config
+
+schema ResourceSpec {
+  cpu: string
+  memory: string
+}
+
+schema Resources {
+  requests: ResourceSpec
+  limits: ResourceSpec
+}
+
+schema Container {
+  name: K8sName
+  image: string
+  ...
+}
+
+schema Metadata {
+  name: K8sName
+  ...
+}
+
+# Top-level: validates the combined multi-document output
+schema Stack {
+  ...
+}
