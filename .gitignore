@@ -6,4 +6,5 @@ playground/pkg/
 hone-wasm/target/
 hone-wasm/pkg/
 *.vsix
-.claude/
+.claude/*
+!.claude/skills/

@@ -58,6 +58,14 @@ main() {
   echo "Installed hone ${version} to ${INSTALL_DIR}/hone"
   echo ""
   "${INSTALL_DIR}/hone" --version
+
+  # Install Claude Code skill for Hone (if Claude Code is present)
+  if [ -d "${HOME}/.claude" ]; then
+    mkdir -p "${HOME}/.claude/skills/hone"
+    if curl -fsSL "https://raw.githubusercontent.com/${REPO}/main/.claude/skills/hone/SKILL.md" -o "${HOME}/.claude/skills/hone/SKILL.md" 2>/dev/null; then
+      echo "Installed Claude Code skill for Hone"
+    fi
+  fi
 }
 
 main "$@"

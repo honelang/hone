@@ -507,6 +507,16 @@ ln -s "$(pwd)" ~/.vscode/extensions/hone-lang-0.1.0
 
 See [editor setup guide](docs/editor-setup.md) for Neovim, Helix, and Sublime Text.
 
+### Claude Code
+
+Install the Hone skill so Claude Code writes correct `.hone` files in your projects:
+
+```bash
+mkdir -p ~/.claude/skills/hone && curl -fsSL https://raw.githubusercontent.com/honelang/hone/main/.claude/skills/hone/SKILL.md -o ~/.claude/skills/hone/SKILL.md
+```
+
+This gives Claude full knowledge of Hone syntax, patterns, and common pitfalls. The skill activates automatically when working with `.hone` files.
+
 ---
 
 ## Playground

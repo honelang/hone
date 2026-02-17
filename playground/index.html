@@ -253,6 +253,7 @@
         <option value="variant">Variants</option>
         <option value="interpolation">String Interpolation</option>
         <option value="args">CLI Args (expect)</option>
+        <option value="dynamic_keys">Dynamic Keys & Dicts</option>
         <option value="mandelbrot">Mandelbrot Set</option>
         <option value="microservices">Microservices (multi-file)</option>
         <option value="ci_pipeline">CI Pipeline (multi-file)</option>
@@ -533,6 +534,50 @@ let grid = for py in range(0, height) {
 }
 
 art: for row in grid { row._ }`,
+      dynamic_keys: `# Dynamic Keys & Dicts
+# Hone has three ways to create dynamic object keys
+
+let env = "prod"
+let envs = ["dev", "staging", "prod"]
+
+# ─── 1. Interpolated String Keys ──────────────────────────────
+# Wrap a key in quotes with \${} to compute it from variables.
+
+"\${env}-host": "api.\${env}.example.com"
+"\${env}-port": 8080
+
+# Works great in loops too:
+services: for name in ["auth", "users", "billing"] {
+  "\${name}-url": "https://\${name}.\${env}.internal"
+}
+
+# ─── 2. Computed Keys [expr] ─────────────────────────────────
+# Use [expr] for keys that are arbitrary expressions.
+
+let key_name = "dynamic"
+[key_name]: 42
+[upper(key_name)]: "uppercase key"
+["item-" + to_str(len(envs))]: "computed from expression"
+
+# ─── 3. Dict via For-in-Body ─────────────────────────────────
+# A for loop IN A BLOCK merges iterations into a flat object.
+# This is how you build a dict/map dynamically.
+
+endpoints {
+  for e in envs {
+    "\${e}": "https://\${e}.example.com"
+  }
+}
+# Result: { dev: "https://...", staging: "https://...", prod: "https://..." }
+
+# ─── For-as-Expression = Array ────────────────────────────────
+# A for loop AS AN EXPRESSION produces an array of objects.
+
+let endpoint_list = for e in envs {
+  "\${e}": "https://\${e}.example.com"
+}
+endpoint_list: endpoint_list
+# Result: [ {dev: "https://..."}, {staging: "https://..."}, {prod: "https://..."} ]`,
     };
 
     // Multi-file examples: { files: { name: source }, entry: name }
