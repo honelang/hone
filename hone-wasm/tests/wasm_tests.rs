@@ -1,5 +1,5 @@
-use wasm_bindgen_test::*;
 use hone_wasm::*;
+use wasm_bindgen_test::*;
 
 #[wasm_bindgen_test]
 fn test_compile_json() {

@@ -5,7 +5,7 @@ name: Deploy Playground to GitHub Pages
 "on":
   push:
     branches: [main]
-    paths: [hone-wasm/**, playground/**, .github/workflows/pages.yml]
+    paths: [src/**, hone-wasm/**, playground/**, .github/workflows/pages.yml]
   workflow_dispatch: {}
 permissions:
   contents: read

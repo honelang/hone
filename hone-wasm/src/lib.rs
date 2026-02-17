@@ -1,11 +1,14 @@
-use wasm_bindgen::prelude::*;
 use std::collections::HashMap;
 use std::path::PathBuf;
+use wasm_bindgen::prelude::*;
 
 use hone::ast::{ImportKind, PreambleItem};
 use hone::evaluator::{merge_values, MergeStrategy};
-use hone::{emit, infer_value, Evaluator, Lexer, OutputFormat, Parser, Type, TypeChecker, Value, VirtualResolver};
 use hone::lexer::token::SourceLocation;
+use hone::{
+    emit, infer_value, Evaluator, Lexer, OutputFormat, Parser, Type, TypeChecker, Value,
+    VirtualResolver,
+};
 use indexmap::IndexMap;
 
 #[wasm_bindgen]
@@ -149,7 +152,9 @@ fn validate_schemas(
     source: &str,
     unchecked_paths: &std::collections::HashSet<String>,
 ) -> hone::HoneResult<()> {
-    let use_statements: Vec<_> = ast.preamble.iter()
+    let use_statements: Vec<_> = ast
+        .preamble
+        .iter()
         .filter_map(|item| {
             if let PreambleItem::Use(use_stmt) = item {
                 Some(use_stmt)
@@ -185,7 +190,11 @@ fn validate_schemas(
             });
         }
 
-        checker.check_type(value, &Type::Schema(use_stmt.schema_name.clone()), &location)?;
+        checker.check_type(
+            value,
+            &Type::Schema(use_stmt.schema_name.clone()),
+            &location,
+        )?;
     }
 
     Ok(())
@@ -270,17 +279,18 @@ fn compile_project_inner(
     // Create resolver and resolve entry point (recursively resolves imports)
     let mut resolver = VirtualResolver::new(virtual_files);
     let entry_path = PathBuf::from(entry_point);
-    resolver
-        .resolve(&entry_path)
-        .map_err(|e| e.message())?;
+    resolver.resolve(&entry_path).map_err(|e| e.message())?;
 
-    // Get topological order
-    let order: Vec<PathBuf> = resolver
+    // Get topological order — use resolved paths (normalized by VirtualResolver)
+    let topo_files = resolver
         .topological_order(&entry_path)
-        .map_err(|e| e.message())?
-        .iter()
+        .map_err(|e| e.message())?;
+    // The last entry in topological order is the entry point (dependencies come first)
+    let entry_path_normalized = topo_files
+        .last()
         .map(|r| r.path.clone())
-        .collect();
+        .ok_or_else(|| "no files resolved".to_string())?;
+    let order: Vec<PathBuf> = topo_files.iter().map(|r| r.path.clone()).collect();
 
     // Compile each file in topological order
     // Store compiled results: (output value, exports map)
@@ -338,8 +348,15 @@ fn compile_project_inner(
 
         // Schema validation
         let unchecked_paths = evaluator.unchecked_paths().clone();
-        validate_schemas_with_imports(&ast, &value, &source, &import_paths, &resolver, &unchecked_paths)
-            .map_err(|e| e.message())?;
+        validate_schemas_with_imports(
+            &ast,
+            &value,
+            &source,
+            &import_paths,
+            &resolver,
+            &unchecked_paths,
+        )
+        .map_err(|e| e.message())?;
 
         // Merge with base if present
         let final_value = if let Some(base) = base_value {
@@ -351,9 +368,9 @@ fn compile_project_inner(
         compiled.insert(file_path.clone(), (final_value, exports));
     }
 
-    // Get the entry point's output
+    // Get the entry point's output (use normalized path)
     let (value, _) = compiled
-        .get(&entry_path)
+        .get(&entry_path_normalized)
         .ok_or_else(|| "compilation produced no output".to_string())?;
 
     emit(value, output_format).map_err(|e| e.message())
@@ -411,8 +428,7 @@ fn inject_imports_virtual(
                 }
                 ImportKind::Named { names, .. } => {
                     for name_import in names {
-                        let local_name =
-                            name_import.alias.as_ref().unwrap_or(&name_import.name);
+                        let local_name = name_import.alias.as_ref().unwrap_or(&name_import.name);
 
                         let value = compiled_exports
                             .get(&name_import.name)
@@ -488,7 +504,11 @@ fn validate_schemas_with_imports(
             });
         }
 
-        checker.check_type(value, &Type::Schema(use_stmt.schema_name.clone()), &location)?;
+        checker.check_type(
+            value,
+            &Type::Schema(use_stmt.schema_name.clone()),
+            &location,
+        )?;
     }
 
     Ok(())
