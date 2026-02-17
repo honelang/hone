@@ -303,6 +303,7 @@
           <div class="tab" data-format="dotenv" onclick="setFormat('dotenv')">.env</div>
         </div>
       </div>
+      <div class="file-tabs" id="outputTabs" style="display: none;"></div>
       <div id="output"></div>
     </div>
   </div>
@@ -322,6 +323,7 @@
     const prettyPrint = document.getElementById('prettyPrint');
     const prettyToggle = document.getElementById('prettyToggle');
     const fileTabsEl = document.getElementById('fileTabs');
+    const outputTabsEl = document.getElementById('outputTabs');
     let currentFormat = 'yaml';
     let debounceTimer;
 
@@ -329,6 +331,10 @@
     let projectFiles = {};     // { filename: source }
     let activeFile = null;     // current tab filename
     let isMultiFile = false;
+
+    // Multi-doc output state
+    let outputDocs = [];       // [{name, content}]
+    let activeOutputDoc = 0;   // index into outputDocs
 
     const EXAMPLES = {
       basics: `# Hone Basics
@@ -1551,6 +1557,29 @@ let enable_service = {
       }
     }
 
+    function renderOutputTabs() {
+      if (outputDocs.length <= 1) {
+        outputTabsEl.style.display = 'none';
+        outputTabsEl.innerHTML = '';
+        return;
+      }
+      outputTabsEl.style.display = 'flex';
+      outputTabsEl.innerHTML = '';
+      for (let i = 0; i < outputDocs.length; i++) {
+        const tab = document.createElement('div');
+        tab.className = 'file-tab' + (i === activeOutputDoc ? ' active' : '');
+        tab.textContent = outputDocs[i].name || '(main)';
+        tab.onclick = () => switchOutputDoc(i);
+        outputTabsEl.appendChild(tab);
+      }
+    }
+
+    function switchOutputDoc(idx) {
+      activeOutputDoc = idx;
+      outputEl.textContent = outputDocs[idx]?.content || '';
+      renderOutputTabs();
+    }
+
     async function start() {
       wasm = await init();
 
@@ -1681,11 +1710,28 @@ let enable_service = {
       }
 
       if (result.success) {
-        outputEl.textContent = result.output;
+        if (result.multi_doc) {
+          try {
+            outputDocs = JSON.parse(result.output);
+            activeOutputDoc = 0;
+            renderOutputTabs();
+            outputEl.textContent = outputDocs[0]?.content || '';
+          } catch {
+            outputDocs = [];
+            renderOutputTabs();
+            outputEl.textContent = result.output;
+          }
+        } else {
+          outputDocs = [];
+          renderOutputTabs();
+          outputEl.textContent = result.output;
+        }
         outputEl.className = '';
         statusEl.textContent = 'OK';
         statusEl.className = 'status ok';
       } else {
+        outputDocs = [];
+        renderOutputTabs();
         outputEl.textContent = result.error;
         outputEl.className = 'error';
         statusEl.textContent = 'Error';

@@ -16,6 +16,7 @@ pub struct CompileResult {
     output: String,
     error: String,
     success: bool,
+    multi_doc: bool,
 }
 
 #[wasm_bindgen]
@@ -33,6 +34,29 @@ impl CompileResult {
     #[wasm_bindgen(getter)]
     pub fn success(&self) -> bool {
         self.success
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn multi_doc(&self) -> bool {
+        self.multi_doc
+    }
+}
+
+fn ok_result(output: String) -> CompileResult {
+    CompileResult {
+        output,
+        error: String::new(),
+        success: true,
+        multi_doc: false,
+    }
+}
+
+fn err_result(error: String) -> CompileResult {
+    CompileResult {
+        output: String::new(),
+        error,
+        success: false,
+        multi_doc: false,
     }
 }
 
@@ -79,26 +103,14 @@ pub fn compile(source: &str, format: &str, variant_json: &str, args_json: &str) 
     let mut lexer = Lexer::new(source, None);
     let tokens = match lexer.tokenize() {
         Ok(t) => t,
-        Err(e) => {
-            return CompileResult {
-                output: String::new(),
-                error: e.message(),
-                success: false,
-            };
-        }
+        Err(e) => return err_result(e.message()),
     };
 
     // Parse
     let mut parser = Parser::new(tokens, source, None);
     let ast = match parser.parse() {
         Ok(a) => a,
-        Err(e) => {
-            return CompileResult {
-                output: String::new(),
-                error: e.message(),
-                success: false,
-            };
-        }
+        Err(e) => return err_result(e.message()),
     };
 
     // Evaluate
@@ -111,37 +123,19 @@ pub fn compile(source: &str, format: &str, variant_json: &str, args_json: &str) 
     }
     let value = match evaluator.evaluate(&ast) {
         Ok(v) => v,
-        Err(e) => {
-            return CompileResult {
-                output: String::new(),
-                error: e.message(),
-                success: false,
-            };
-        }
+        Err(e) => return err_result(e.message()),
     };
 
     // Schema validation (same as Compiler::compile_source)
     let unchecked_paths = evaluator.unchecked_paths().clone();
     if let Err(e) = validate_schemas(&ast, &value, source, &unchecked_paths) {
-        return CompileResult {
-            output: String::new(),
-            error: e.message(),
-            success: false,
-        };
+        return err_result(e.message());
     }
 
     // Emit
     match emit(&value, output_format) {
-        Ok(output) => CompileResult {
-            output,
-            error: String::new(),
-            success: true,
-        },
-        Err(e) => CompileResult {
-            output: String::new(),
-            error: e.message(),
-            success: false,
-        },
+        Ok(output) => ok_result(output),
+        Err(e) => err_result(e.message()),
     }
 }
 
@@ -216,16 +210,13 @@ pub fn compile_project(
     args_json: &str,
 ) -> CompileResult {
     match compile_project_inner(files_json, entry_point, format, variant_json, args_json) {
-        Ok(output) => CompileResult {
+        Ok((output, multi_doc)) => CompileResult {
             output,
             error: String::new(),
             success: true,
+            multi_doc,
         },
-        Err(e) => CompileResult {
-            output: String::new(),
-            error: e,
-            success: false,
-        },
+        Err(e) => err_result(e),
     }
 }
 
@@ -235,7 +226,7 @@ fn compile_project_inner(
     format: &str,
     variant_json: &str,
     args_json: &str,
-) -> Result<String, String> {
+) -> Result<(String, bool), String> {
     let output_format = match format {
         "yaml" | "YAML" => OutputFormat::Yaml,
         "toml" | "TOML" => OutputFormat::Toml,
@@ -366,32 +357,22 @@ fn compile_project_inner(
                 .map_err(|e| e.message())?;
             }
 
-            // Emit all non-empty documents
-            let mut parts = Vec::new();
+            // Emit each non-empty document as a JSON array of {name, content}
+            let mut doc_entries = Vec::new();
             for (name, value) in &documents {
                 if name.is_none() && value.is_empty_object() {
                     continue;
                 }
                 let emitted = emit(value, output_format).map_err(|e| e.message())?;
-                if let Some(doc_name) = name {
-                    match output_format {
-                        OutputFormat::Yaml => {
-                            parts.push(format!("# {}\n{}", doc_name, emitted));
-                        }
-                        _ => {
-                            parts.push(format!("// {}\n{}", doc_name, emitted));
-                        }
-                    }
-                } else {
-                    parts.push(emitted);
-                }
+                let doc_name = name.clone().unwrap_or_default();
+                doc_entries.push(serde_json::json!({
+                    "name": doc_name,
+                    "content": emitted,
+                }));
             }
-
-            let separator = match output_format {
-                OutputFormat::Yaml => "\n---\n",
-                _ => "\n\n",
-            };
-            return Ok(parts.join(separator));
+            let output = serde_json::to_string(&doc_entries)
+                .map_err(|e| format!("JSON serialization error: {}", e))?;
+            return Ok((output, true));
         }
 
         let value = evaluator.evaluate(&ast).map_err(|e| e.message())?;
@@ -430,7 +411,8 @@ fn compile_project_inner(
         .get(&entry_path_normalized)
         .ok_or_else(|| "compilation produced no output".to_string())?;
 
-    emit(value, output_format).map_err(|e| e.message())
+    let output = emit(value, output_format).map_err(|e| e.message())?;
+    Ok((output, false))
 }
 
 /// Inject imports from compiled files into the evaluator scope.
@@ -574,15 +556,7 @@ fn validate_schemas_with_imports(
 #[wasm_bindgen]
 pub fn format_source(source: &str) -> CompileResult {
     match hone::format_source(source) {
-        Ok(formatted) => CompileResult {
-            output: formatted,
-            error: String::new(),
-            success: true,
-        },
-        Err(e) => CompileResult {
-            output: String::new(),
-            error: e.message(),
-            success: false,
-        },
+        Ok(formatted) => ok_result(formatted),
+        Err(e) => err_result(e.message()),
     }
 }
