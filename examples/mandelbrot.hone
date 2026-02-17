@@ -1,0 +1,67 @@
+# Mandelbrot Set — ASCII art computed entirely in Hone
+#
+# This is a configuration language. We are rendering a fractal.
+# Each pixel is computed independently using manually-unrolled
+# iterations of z = z² + c with complex arithmetic.
+#
+# Run:
+#   hone compile examples/mandelbrot.hone --format yaml
+#   hone compile examples/mandelbrot.hone --format json
+
+let width = 72
+let height = 28
+let x_min = -2.2
+let x_max = 0.8
+let y_min = -1.2
+let y_max = 1.2
+
+let x_step = (x_max - x_min) / width
+let y_step = (y_max - y_min) / height
+
+# Compute the fractal grid.
+# 8 iterations of z = z² + c per pixel, ~2000 complex multiplications.
+# For-loops with let-bindings produce objects, so we use "_" as a
+# dummy key and unwrap with ._ — a small price for complex math.
+
+let grid = for py in range(0, height) {
+  let cy = y_max - py * y_step
+  let pixels = for px in range(0, width) {
+    let cx = x_min + px * x_step
+
+    # z = z² + c, unrolled 8 iterations
+    let z1r = cx
+    let z1i = cy
+    let z2r = z1r * z1r - z1i * z1i + cx
+    let z2i = 2.0 * z1r * z1i + cy
+    let z3r = z2r * z2r - z2i * z2i + cx
+    let z3i = 2.0 * z2r * z2i + cy
+    let z4r = z3r * z3r - z3i * z3i + cx
+    let z4i = 2.0 * z3r * z3i + cy
+    let z5r = z4r * z4r - z4i * z4i + cx
+    let z5i = 2.0 * z4r * z4i + cy
+    let z6r = z5r * z5r - z5i * z5i + cx
+    let z6i = 2.0 * z5r * z5i + cy
+    let z7r = z6r * z6r - z6i * z6i + cx
+    let z7i = 2.0 * z6r * z6i + cy
+    let z8r = z7r * z7r - z7i * z7i + cx
+    let z8i = 2.0 * z7r * z7i + cy
+
+    # |z|² at each step — escape radius is 4
+    let m1 = z1r * z1r + z1i * z1i
+    let m2 = z2r * z2r + z2i * z2i
+    let m3 = z3r * z3r + z3i * z3i
+    let m4 = z4r * z4r + z4i * z4i
+    let m5 = z5r * z5r + z5i * z5i
+    let m6 = z6r * z6r + z6i * z6i
+    let m7 = z7r * z7r + z7i * z7i
+    let m8 = z8r * z8r + z8i * z8i
+
+    # Map escape iteration to shading character
+    let ch = m1 > 4.0 ? " " : m2 > 4.0 ? "." : m3 > 4.0 ? ":" : m4 > 4.0 ? "-" : m5 > 4.0 ? "=" : m6 > 4.0 ? "+" : m7 > 4.0 ? "*" : m8 > 4.0 ? "#" : "@"
+    "_": ch
+  }
+  let chars = for p in pixels { p._ }
+  "_": join(chars, "")
+}
+
+art: for row in grid { row._ }

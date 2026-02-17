@@ -3343,3 +3343,83 @@ real_bool: true
     assert!(yaml.contains(r#"feature_off: "off""#));
     assert!(yaml.contains("real_bool: true"));
 }
+
+// ── Computational stress tests ──────────────────────────────────────────
+
+#[test]
+fn test_mandelbrot_fractal_computation() {
+    // The Mandelbrot set, computed in a configuration language.
+    // 8 iterations of z = z² + c with complex arithmetic, per pixel.
+    let source = r##"
+let width = 20
+let height = 10
+let x_step = 3.0 / width
+let y_step = 2.4 / height
+
+let grid = for py in range(0, height) {
+  let cy = 1.2 - py * y_step
+  let pixels = for px in range(0, width) {
+    let cx = -2.2 + px * x_step
+    let z1r = cx
+    let z1i = cy
+    let z2r = z1r * z1r - z1i * z1i + cx
+    let z2i = 2.0 * z1r * z1i + cy
+    let z3r = z2r * z2r - z2i * z2i + cx
+    let z3i = 2.0 * z2r * z2i + cy
+    let z4r = z3r * z3r - z3i * z3i + cx
+    let z4i = 2.0 * z3r * z3i + cy
+    let m1 = z1r * z1r + z1i * z1i
+    let m2 = z2r * z2r + z2i * z2i
+    let m3 = z3r * z3r + z3i * z3i
+    let m4 = z4r * z4r + z4i * z4i
+    let ch = m1 > 4.0 ? " " : m2 > 4.0 ? "." : m3 > 4.0 ? ":" : m4 > 4.0 ? "#" : "@"
+    "_": ch
+  }
+  let chars = for p in pixels { p._ }
+  "_": join(chars, "")
+}
+
+art: for row in grid { row._ }
+"##;
+    let json = compile_to_json(source).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+    let art = parsed["art"].as_array().unwrap();
+
+    // Should produce the right number of rows
+    assert_eq!(art.len(), 10);
+
+    // Each row should be the right width
+    for row in art {
+        assert_eq!(row.as_str().unwrap().len(), 20);
+    }
+
+    // The center of the Mandelbrot set (around x=-0.5, y=0) should be "@"
+    // and the far edges should be spaces (escaped quickly)
+    let middle_row = art[5].as_str().unwrap();
+    assert!(middle_row.contains("@"), "center should be in the set");
+    assert!(middle_row.starts_with(' '), "left edge should escape");
+
+    // The set should be roughly symmetric about the real axis (y=0)
+    // At low resolution this isn't pixel-perfect, but row 0 and row 9
+    // (top/bottom edges) should both start with spaces (outside the set)
+    let top = art[0].as_str().unwrap();
+    let bottom = art[9].as_str().unwrap();
+    assert!(top.starts_with(' '), "top edge should be outside the set");
+    assert!(bottom.starts_with(' '), "bottom edge should be outside the set");
+}
+
+#[test]
+fn test_for_loop_dummy_key_unwrap_pattern() {
+    // The "_" dummy key pattern used by mandelbrot for computed for-loops
+    let source = r#"
+let data = for i in range(0, 5) {
+  let squared = i * i
+  "_": squared
+}
+result: for item in data { item._ }
+"#;
+    let json = compile_to_json(source).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+    let result = parsed["result"].as_array().unwrap();
+    assert_eq!(result, &[0, 1, 4, 9, 16]);
+}

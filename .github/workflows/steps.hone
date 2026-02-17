@@ -27,6 +27,8 @@ echo "  Compiling examples/ci-pipeline/main.hone..."
 echo "  Compiling examples/ansible-playbook/main.hone..."
 ./target/release/hone compile examples/ansible-playbook/main.hone --format yaml > /dev/null
 ./target/release/hone compile examples/ansible-playbook/main.hone --format yaml --variant env=production > /dev/null
+echo "  Compiling examples/mandelbrot.hone..."
+./target/release/hone compile examples/mandelbrot.hone --format yaml > /dev/null
 """
 
 let dogfood_check = """
