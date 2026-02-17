@@ -439,7 +439,8 @@ impl VirtualResolver {
 
     /// Add a virtual file
     pub fn add_file(&mut self, path: impl Into<PathBuf>, content: impl Into<String>) {
-        self.files.insert(normalize_path(&path.into()), content.into());
+        self.files
+            .insert(normalize_path(&path.into()), content.into());
     }
 
     /// Resolve a virtual file
