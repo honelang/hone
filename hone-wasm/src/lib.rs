@@ -337,6 +337,63 @@ fn compile_project_inner(
             })
             .collect();
 
+        // For the entry point, use evaluate_multi to handle ---name documents
+        let is_entry = *file_path == entry_path_normalized;
+        let has_documents = !ast.documents.is_empty();
+
+        if is_entry && has_documents {
+            // Multi-document entry point: evaluate_multi and emit all docs
+            let mut documents = evaluator.evaluate_multi(&ast).map_err(|e| e.message())?;
+
+            // Merge main document with base if present
+            if let Some(base) = base_value {
+                if let Some((_, ref mut main_value)) = documents.first_mut() {
+                    *main_value = merge_values(base, main_value.clone(), MergeStrategy::Normal);
+                }
+            }
+
+            // Schema validation on main document
+            let unchecked_paths = evaluator.unchecked_paths().clone();
+            if let Some((_, ref main_value)) = documents.first() {
+                validate_schemas_with_imports(
+                    &ast,
+                    main_value,
+                    &source,
+                    &import_paths,
+                    &resolver,
+                    &unchecked_paths,
+                )
+                .map_err(|e| e.message())?;
+            }
+
+            // Emit all non-empty documents
+            let mut parts = Vec::new();
+            for (name, value) in &documents {
+                if name.is_none() && value.is_empty_object() {
+                    continue;
+                }
+                let emitted = emit(value, output_format).map_err(|e| e.message())?;
+                if let Some(doc_name) = name {
+                    match output_format {
+                        OutputFormat::Yaml => {
+                            parts.push(format!("# {}\n{}", doc_name, emitted));
+                        }
+                        _ => {
+                            parts.push(format!("// {}\n{}", doc_name, emitted));
+                        }
+                    }
+                } else {
+                    parts.push(emitted);
+                }
+            }
+
+            let separator = match output_format {
+                OutputFormat::Yaml => "\n---\n",
+                _ => "\n\n",
+            };
+            return Ok(parts.join(separator));
+        }
+
         let value = evaluator.evaluate(&ast).map_err(|e| e.message())?;
 
         let mut exports = HashMap::new();
