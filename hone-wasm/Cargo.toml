@@ -1,8 +1,11 @@
 [package]
 name = "hone-wasm"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 description = "WASM bindings for the Hone configuration language"
+license = "MIT"
+repository = "https://github.com/honelang/hone"
+homepage = "https://github.com/honelang/hone"
 
 [lib]
 crate-type = ["cdylib", "rlib"]

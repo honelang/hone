@@ -2,7 +2,7 @@
   "name": "hone-lang",
   "displayName": "Hone Configuration Language",
   "description": "Syntax highlighting and language support for Hone (.hone) files",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "publisher": "honelang",
   "license": "MIT",
   "repository": {
