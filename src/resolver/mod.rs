@@ -420,8 +420,13 @@ pub struct VirtualResolver {
 
 impl VirtualResolver {
     pub fn new(files: HashMap<PathBuf, String>) -> Self {
+        // Normalize all file keys so lookups match normalized import paths
+        let normalized_files = files
+            .into_iter()
+            .map(|(k, v)| (normalize_path(&k), v))
+            .collect();
         Self {
-            files,
+            files: normalized_files,
             cache: HashMap::new(),
             resolution_stack: Vec::new(),
         }
@@ -429,17 +434,17 @@ impl VirtualResolver {
 
     /// Get a previously resolved file from cache
     pub fn get(&self, path: &Path) -> Option<&ResolvedFile> {
-        self.cache.get(path)
+        self.cache.get(&normalize_path(path))
     }
 
     /// Add a virtual file
     pub fn add_file(&mut self, path: impl Into<PathBuf>, content: impl Into<String>) {
-        self.files.insert(path.into(), content.into());
+        self.files.insert(normalize_path(&path.into()), content.into());
     }
 
     /// Resolve a virtual file
     pub fn resolve(&mut self, path: impl AsRef<Path>) -> HoneResult<&ResolvedFile> {
-        let path = path.as_ref().to_path_buf();
+        let path = normalize_path(path.as_ref());
 
         // Check if already resolved
         if self.cache.contains_key(&path) {
@@ -508,7 +513,7 @@ impl VirtualResolver {
         let mut visited = HashSet::new();
         let mut result = Vec::new();
 
-        self.visit_topological(root, &mut visited, &mut result)?;
+        self.visit_topological(&normalize_path(root), &mut visited, &mut result)?;
 
         Ok(result)
     }
