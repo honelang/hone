@@ -34,6 +34,9 @@ jobs:
           rm -rf "$tmpdir"
           echo "  Compiling examples/ci-pipeline/main.hone..."
           ./target/release/hone compile examples/ci-pipeline/main.hone --format yaml > /dev/null
+          echo "  Compiling examples/ansible-playbook/main.hone..."
+          ./target/release/hone compile examples/ansible-playbook/main.hone --format yaml > /dev/null
+          ./target/release/hone compile examples/ansible-playbook/main.hone --format yaml --variant env=production > /dev/null
       - name: Verify stdin
         run: "echo 'name: \"test\"' | ./target/release/hone compile - --format yaml"
       - name: Verify version

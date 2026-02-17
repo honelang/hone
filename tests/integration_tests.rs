@@ -2958,3 +2958,388 @@ result: 9223372036854775807 + 1
         assert!(result.is_err(), "integer overflow should be an error");
     }
 }
+
+// ── Ansible / YAML-hostile pattern tests ────────────────────────────────
+
+/// Tests that Hone correctly handles patterns commonly found in Ansible
+/// playbooks and other YAML-heavy tools that clash with YAML's quirks
+/// or Hone's reserved words.
+
+#[test]
+fn test_ansible_reserved_word_when_as_key() {
+    let source = r#"
+tasks: [
+  {
+    name: "Check something"
+    "when": "ansible_os_family == 'Debian'"
+  },
+]
+"#;
+    let yaml = compile_to_yaml(source).unwrap();
+    assert!(yaml.contains("when: "));
+    assert!(yaml.contains("Debian"));
+}
+
+#[test]
+fn test_ansible_reserved_word_import_as_key() {
+    let source = r#"
+tasks: [
+  {
+    name: "Include role"
+    "import": "roles/common/tasks/main.yml"
+  },
+]
+"#;
+    let json = compile_to_json(source).unwrap();
+    assert!(json.contains(r#""import":"roles/common/tasks/main.yml""#));
+}
+
+#[test]
+fn test_ansible_reserved_word_type_as_key() {
+    let source = r#"
+resource {
+  "type": "Deployment"
+  apiVersion: "apps/v1"
+}
+"#;
+    let json = compile_to_json(source).unwrap();
+    assert!(json.contains(r#""type":"Deployment""#));
+}
+
+#[test]
+fn test_ansible_yes_no_strings_preserved() {
+    // Ansible often uses "yes"/"no" as string values.
+    // Hone should emit them as quoted strings in YAML, not as booleans.
+    let source = r#"
+create_home: "yes"
+update_cache: "yes"
+force: "no"
+enabled: true
+"#;
+    let yaml = compile_to_yaml(source).unwrap();
+    assert!(yaml.contains(r#"create_home: "yes""#));
+    assert!(yaml.contains(r#"update_cache: "yes""#));
+    assert!(yaml.contains(r#"force: "no""#));
+    assert!(yaml.contains("enabled: true"));
+}
+
+#[test]
+fn test_ansible_norway_problem() {
+    // The YAML 1.1 "Norway problem": bare NO is interpreted as false.
+    // Hone strings should always be properly quoted in YAML output.
+    let source = r#"
+country_code: "NO"
+country_name: "Norway"
+flag: false
+"#;
+    let yaml = compile_to_yaml(source).unwrap();
+    assert!(yaml.contains(r#"country_code: "NO""#));
+    assert!(yaml.contains("country_name: Norway"));
+    assert!(yaml.contains("flag: false"));
+}
+
+#[test]
+fn test_ansible_jinja2_passthrough() {
+    // Jinja2 {{ }} expressions should pass through untouched.
+    // Hone only interpolates ${ }, not {{ }}.
+    let source = r#"
+name: "Deploy app"
+vars: {
+  workers: "{{ gunicorn_workers }}"
+  bind: "127.0.0.1:{{ app_port }}"
+}
+"#;
+    let yaml = compile_to_yaml(source).unwrap();
+    assert!(yaml.contains("{{ gunicorn_workers }}"));
+    assert!(yaml.contains("{{ app_port }}"));
+}
+
+#[test]
+fn test_ansible_register_and_conditional() {
+    let source = r#"
+tasks: [
+  {
+    name: "Check config"
+    stat: { path: "/etc/app.conf" }
+    register: "config_check"
+  },
+  {
+    name: "Create config"
+    template: { src: "app.conf.j2", dest: "/etc/app.conf" }
+    "when": "not config_check.stat.exists"
+  },
+]
+"#;
+    let json = compile_to_json(source).unwrap();
+    assert!(json.contains(r#""register":"config_check""#));
+    assert!(json.contains(r#""when":"not config_check.stat.exists""#));
+}
+
+#[test]
+fn test_ansible_loop_with_items() {
+    let source = r#"
+let users = [
+  { name: "alice", groups: "admin,docker" },
+  { name: "bob", groups: "docker" },
+]
+
+tasks: [
+  for user in users {
+    name: "Create user ${user.name}"
+    user: { name: user.name, groups: user.groups }
+    "when": "ansible_os_family == 'Debian'"
+  },
+]
+"#;
+    let json = compile_to_json(source).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+    let tasks = parsed["tasks"].as_array().unwrap();
+    assert_eq!(tasks.len(), 2);
+    assert_eq!(tasks[0]["name"], "Create user alice");
+    assert_eq!(tasks[1]["name"], "Create user bob");
+    assert_eq!(tasks[0]["user"]["groups"], "admin,docker");
+    assert_eq!(tasks[1]["when"], "ansible_os_family == 'Debian'");
+}
+
+#[test]
+fn test_ansible_handlers() {
+    let source = r#"
+let app = "myapp"
+
+handlers: [
+  {
+    name: "restart ${app}"
+    systemd: { name: app, state: "restarted" }
+  },
+  {
+    name: "reload nginx"
+    systemd: { name: "nginx", state: "reloaded" }
+  },
+]
+"#;
+    let json = compile_to_json(source).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+    let handlers = parsed["handlers"].as_array().unwrap();
+    assert_eq!(handlers.len(), 2);
+    assert_eq!(handlers[0]["name"], "restart myapp");
+    assert_eq!(handlers[0]["systemd"]["name"], "myapp");
+    assert_eq!(handlers[1]["systemd"]["state"], "reloaded");
+}
+
+#[test]
+fn test_ansible_notify_with_interpolation() {
+    let source = r#"
+let service = "myapp"
+task {
+  name: "Deploy config"
+  template: { src: "config.j2", dest: "/etc/config" }
+  notify: ["restart ${service}", "reload nginx"]
+}
+"#;
+    let json = compile_to_json(source).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+    let notify = parsed["task"]["notify"].as_array().unwrap();
+    assert_eq!(notify[0], "restart myapp");
+    assert_eq!(notify[1], "reload nginx");
+}
+
+#[test]
+fn test_ansible_dotted_module_names() {
+    // Ansible collection module names like community.general.ufw
+    // need quoting in Hone since dots are property access.
+    let source = r#"
+tasks: [
+  {
+    name: "Allow SSH"
+    "community.general.ufw": { rule: "allow", port: "22", proto: "tcp" }
+  },
+]
+"#;
+    let yaml = compile_to_yaml(source).unwrap();
+    assert!(yaml.contains("community.general.ufw:"));
+    assert!(yaml.contains("rule: allow"));
+}
+
+#[test]
+fn test_ansible_become_and_gather_facts() {
+    let source = r#"
+hosts: "webservers"
+become: true
+gather_facts: false
+tasks: []
+"#;
+    let json = compile_to_json(source).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+    assert_eq!(parsed["become"], true);
+    assert_eq!(parsed["gather_facts"], false);
+    assert_eq!(parsed["hosts"], "webservers");
+}
+
+#[test]
+fn test_ansible_tags_array() {
+    let source = r#"
+tasks: [
+  {
+    name: "Install packages"
+    apt: { name: ["nginx"], state: "present" }
+    tags: ["setup", "packages", "web"]
+  },
+]
+"#;
+    let json = compile_to_json(source).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+    let tags = parsed["tasks"][0]["tags"].as_array().unwrap();
+    assert_eq!(tags.len(), 3);
+    assert_eq!(tags[0], "setup");
+    assert_eq!(tags[2], "web");
+}
+
+#[test]
+fn test_ansible_vars_with_jinja2_filters() {
+    // Jinja2 pipe filters should pass through cleanly
+    let source = r#"
+tasks: [
+  {
+    name: "Show info"
+    debug: { msg: "Host: {{ inventory_hostname | upper }}, OS: {{ ansible_distribution | lower }}" }
+  },
+]
+"#;
+    let yaml = compile_to_yaml(source).unwrap();
+    assert!(yaml.contains("{{ inventory_hostname | upper }}"));
+    assert!(yaml.contains("{{ ansible_distribution | lower }}"));
+}
+
+#[test]
+fn test_ansible_file_permissions_as_strings() {
+    // File modes must stay as strings ("0644"), not become integers
+    let source = r#"
+file: {
+  path: "/etc/app.conf"
+  mode: "0644"
+  owner: "root"
+}
+"#;
+    let yaml = compile_to_yaml(source).unwrap();
+    assert!(yaml.contains(r#"mode: "0644""#));
+}
+
+#[test]
+fn test_ansible_mixed_hone_and_jinja2_interpolation() {
+    // Hone ${} should resolve, Jinja2 {{ }} should pass through
+    let source = r#"
+let app = "myapp"
+let config_dir = "/etc/${app}"
+
+template: {
+  src: "{{ role_path }}/templates/config.j2"
+  dest: "${config_dir}/app.conf"
+}
+"#;
+    let json = compile_to_json(source).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+    assert_eq!(parsed["template"]["dest"], "/etc/myapp/app.conf");
+    assert_eq!(
+        parsed["template"]["src"],
+        "{{ role_path }}/templates/config.j2"
+    );
+}
+
+#[test]
+fn test_ansible_spread_reusable_task_pattern() {
+    // Spread a common task pattern and override specific fields
+    let source = r#"
+let enable_service = {
+  systemd: {
+    enabled: "yes"
+    state: "started"
+    daemon_reload: "yes"
+  }
+}
+
+tasks: [
+  {
+    name: "Start nginx"
+    ...enable_service
+    systemd {
+      name: "nginx"
+    }
+  },
+  {
+    name: "Start supervisor"
+    ...enable_service
+    systemd {
+      name: "supervisor"
+    }
+  },
+]
+"#;
+    let json = compile_to_json(source).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+    let tasks = parsed["tasks"].as_array().unwrap();
+    // Spread + deep merge: name should be set, systemd should have all fields
+    assert_eq!(tasks[0]["systemd"]["name"], "nginx");
+    assert_eq!(tasks[0]["systemd"]["enabled"], "yes");
+    assert_eq!(tasks[0]["systemd"]["state"], "started");
+    assert_eq!(tasks[1]["systemd"]["name"], "supervisor");
+    assert_eq!(tasks[1]["systemd"]["daemon_reload"], "yes");
+}
+
+#[test]
+fn test_ansible_for_loop_generates_tasks() {
+    // A for-loop in a task array should expand to multiple task objects
+    let source = r#"
+let ports = ["22/tcp", "80/tcp", "443/tcp"]
+
+tasks: [
+  for port in ports {
+    name: "Allow ${port}"
+    ufw: { rule: "allow", port: replace(port, "/tcp", "") }
+  },
+]
+"#;
+    let json = compile_to_json(source).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+    let tasks = parsed["tasks"].as_array().unwrap();
+    assert_eq!(tasks.len(), 3);
+    assert_eq!(tasks[0]["name"], "Allow 22/tcp");
+    assert_eq!(tasks[0]["ufw"]["port"], "22");
+    assert_eq!(tasks[2]["name"], "Allow 443/tcp");
+    assert_eq!(tasks[2]["ufw"]["port"], "443");
+}
+
+#[test]
+fn test_ansible_policy_as_key() {
+    // "policy" is a reserved word in Hone, must be quoted as a key
+    let source = r#"
+ufw: { state: "enabled", "policy": "deny" }
+"#;
+    let json = compile_to_json(source).unwrap();
+    assert!(json.contains(r#""policy":"deny""#));
+}
+
+#[test]
+fn test_yaml_octal_like_strings_stay_quoted() {
+    // Values like "0755" that YAML might interpret as octal should stay strings
+    let source = r#"
+mode: "0755"
+code: "0100"
+"#;
+    let yaml = compile_to_yaml(source).unwrap();
+    assert!(yaml.contains(r#"mode: "0755""#));
+    assert!(yaml.contains(r#"code: "0100""#));
+}
+
+#[test]
+fn test_yaml_on_off_strings_stay_quoted() {
+    // YAML 1.1 treats on/off/yes/no as booleans. Hone strings must stay quoted.
+    let source = r#"
+feature_on: "on"
+feature_off: "off"
+real_bool: true
+"#;
+    let yaml = compile_to_yaml(source).unwrap();
+    assert!(yaml.contains(r#"feature_on: "on""#));
+    assert!(yaml.contains(r#"feature_off: "off""#));
+    assert!(yaml.contains("real_bool: true"));
+}

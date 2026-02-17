@@ -1,0 +1,265 @@
+# Ansible Playbook — Flask App Deployment
+#
+# Demonstrates Hone generating Ansible YAML, including reserved-word keys
+# ("when", "import", "type"), Jinja2 passthrough ({{ }}), yes/no strings,
+# register, loops, handlers, and variant-controlled environments.
+#
+# Run:
+#   hone compile examples/ansible-playbook/main.hone --format yaml
+#   hone compile examples/ansible-playbook/main.hone --format yaml --variant env=production
+
+import "./vars.hone" as vars
+
+# ── Environment variants ─────────────────────────────────────
+
+variant env {
+  default staging {
+    let gunicorn_workers = 2
+    let nginx_server_name = "staging.yeetops.dev"
+    let ssl_enabled = false
+    let app_branch = "develop"
+  }
+  production {
+    let gunicorn_workers = 8
+    let nginx_server_name = "app.yeetops.dev"
+    let ssl_enabled = true
+    let app_branch = "main"
+  }
+}
+
+# ── Play ─────────────────────────────────────────────────────
+
+name: "Deploy ${vars.app_name}"
+hosts: "webservers"
+become: true
+gather_facts: true
+
+vars {
+  app_name: vars.app_name
+  app_dir: vars.app_dir
+  app_port: vars.app_port
+  gunicorn_workers: gunicorn_workers
+  nginx_server_name: nginx_server_name
+}
+
+# ── Tasks ────────────────────────────────────────────────────
+
+tasks: [
+
+  # --- System setup ---
+
+  {
+    name: "Install system packages"
+    ...vars.apt_install
+    tags: ["setup", "packages"]
+  },
+
+  {
+    name: "Create app user"
+    user: {
+      name: vars.app_user
+      shell: "/bin/bash"
+      system: "yes"
+      home: vars.app_dir
+      create_home: "yes"
+    }
+  },
+
+  # --- SSH access ---
+
+  for user in vars.users {
+    name: "Add SSH key for ${user.name}"
+    authorized_key: {
+      user: user.name
+      key: user.key
+      state: "present"
+    }
+    "when": "ansible_os_family == 'Debian'"
+    tags: ["users"]
+  },
+
+  # --- Firewall ---
+
+  for port in vars.firewall_ports {
+    name: "Allow ${port} through firewall"
+    "community.general.ufw": {
+      rule: "allow"
+      port: replace(port, "/tcp", "")
+      proto: "tcp"
+    }
+    tags: ["firewall"]
+  },
+
+  {
+    name: "Enable firewall"
+    "community.general.ufw": { state: "enabled", "policy": "deny" }
+    tags: ["firewall"]
+  },
+
+  # --- Application ---
+
+  {
+    name: "Clone application repo"
+    git: {
+      repo: vars.app_repo
+      dest: vars.app_dir
+      version: app_branch
+      force: "yes"
+    }
+    become_user: vars.app_user
+    notify: ["restart app"]
+    register: "git_result"
+  },
+
+  {
+    name: "Create virtualenv and install deps"
+    pip: {
+      requirements: "${vars.app_dir}/requirements.txt"
+      virtualenv: vars.venv_dir
+      virtualenv_command: "python3 -m venv"
+    }
+    become_user: vars.app_user
+    "when": "git_result.changed"
+  },
+
+  {
+    name: "Create log directory"
+    file: {
+      path: vars.log_dir
+      state: "directory"
+      owner: vars.app_user
+      group: vars.app_user
+      mode: "0755"
+    }
+  },
+
+  # --- Config files (Jinja2 passthrough) ---
+
+  {
+    name: "Deploy app config"
+    template: {
+      src: "templates/config.ini.j2"
+      dest: "${vars.config_dir}/config.ini"
+      owner: vars.app_user
+      mode: "0600"
+    }
+    notify: ["restart app"]
+    tags: ["config"]
+  },
+
+  {
+    name: "Deploy supervisor config"
+    template: {
+      src: "templates/supervisor.conf.j2"
+      dest: "/etc/supervisor/conf.d/${vars.app_name}.conf"
+    }
+    notify: ["restart app"]
+    vars: {
+      workers: "{{ gunicorn_workers }}"
+      bind: "127.0.0.1:{{ app_port }}"
+    }
+  },
+
+  {
+    name: "Deploy nginx site config"
+    template: {
+      src: "templates/nginx.conf.j2"
+      dest: "/etc/nginx/sites-available/${vars.app_name}"
+      owner: "root"
+      mode: "0644"
+    }
+    notify: ["reload nginx"]
+    vars: {
+      server_name: "{{ nginx_server_name }}"
+      upstream_port: "{{ app_port }}"
+    }
+  },
+
+  {
+    name: "Enable nginx site"
+    file: {
+      src: "/etc/nginx/sites-available/${vars.app_name}"
+      dest: "/etc/nginx/sites-enabled/${vars.app_name}"
+      state: "link"
+    }
+    notify: ["reload nginx"]
+  },
+
+  # --- SSL (production only) ---
+
+  {
+    name: "Install certbot"
+    apt: { name: ["certbot", "python3-certbot-nginx"], state: "present" }
+    "when": to_str(ssl_enabled)
+    tags: ["ssl"]
+  },
+
+  {
+    name: "Obtain SSL certificate"
+    command: "certbot --nginx -d {{ nginx_server_name }} --non-interactive --agree-tos -m ops@yeetops.dev"
+    args: { creates: "/etc/letsencrypt/live/{{ nginx_server_name }}/fullchain.pem" }
+    "when": to_str(ssl_enabled)
+    tags: ["ssl"]
+  },
+
+  # --- Services ---
+
+  {
+    name: "Start supervisor"
+    ...vars.enable_service
+    systemd {
+      name: "supervisor"
+    }
+  },
+
+  {
+    name: "Start nginx"
+    ...vars.enable_service
+    systemd {
+      name: "nginx"
+    }
+  },
+
+  # --- Smoke test ---
+
+  {
+    name: "Verify app is responding"
+    uri: {
+      url: "http://127.0.0.1:${to_str(vars.app_port)}/health"
+      status_code: [200]
+      timeout: 30
+    }
+    retries: 5
+    delay: 3
+    register: "health_check"
+    "when": "git_result.changed"
+    tags: ["verify"]
+  },
+
+  {
+    name: "Show deploy result"
+    debug: {
+      msg: "Deployed ${vars.app_name} ({{ ansible_hostname }}), healthy: {{ health_check.status | default('skipped') }}"
+    }
+    tags: ["verify"]
+  },
+]
+
+# ── Handlers ─────────────────────────────────────────────────
+
+handlers: [
+  {
+    name: "restart app"
+    supervisorctl: {
+      name: vars.app_name
+      state: "restarted"
+    }
+  },
+  {
+    name: "reload nginx"
+    systemd: {
+      name: "nginx"
+      state: "reloaded"
+    }
+  },
+]

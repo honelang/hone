@@ -1,0 +1,47 @@
+# Shared variables and reusable task patterns for the playbook
+#
+# Import as: import "./vars.hone" as vars
+
+# ── App settings ─────────────────────────────────────────────
+
+let app_name = "helloflask"
+let app_user = "deploy"
+let app_port = 5000
+let app_repo = "https://github.com/yeetops/helloflask.git"
+let app_dir = "/opt/${app_name}"
+let venv_dir = "${app_dir}/venv"
+let config_dir = "/etc/${app_name}"
+let log_dir = "/var/log/${app_name}"
+
+let system_packages = [
+  "nginx", "python3", "python3-venv", "python3-pip",
+  "git", "supervisor", "ufw",
+]
+
+let firewall_ports = ["22/tcp", "80/tcp", "443/tcp"]
+
+# ── Users ────────────────────────────────────────────────────
+
+let users = [
+  { name: "alice", groups: "admin,docker", key: "ssh-ed25519 AAAA... alice@ops" },
+  { name: "bob", groups: "docker", key: "ssh-ed25519 AAAA... bob@ops" },
+]
+
+# ── Reusable task patterns ───────────────────────────────────
+
+let apt_install = {
+  apt: {
+    name: system_packages,
+    state: "present",
+    update_cache: "yes",
+    cache_valid_time: 3600,
+  }
+}
+
+let enable_service = {
+  systemd: {
+    enabled: "yes",
+    state: "started",
+    daemon_reload: "yes",
+  }
+}
