@@ -1,6 +1,6 @@
-// Type provider: generates Hone schema definitions from external type sources.
-//
-// Currently supports JSON Schema -> Hone schema conversion.
+//! Type provider: generates Hone schema definitions from external type sources.
+//!
+//! Currently supports JSON Schema → Hone schema conversion (`hone typegen`).
 // Usage: `hone typegen schema.json -o types.hone`
 
 use serde_json::Value;

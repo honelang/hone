@@ -1,3 +1,7 @@
+//! Lexer (tokenizer) for the Hone configuration language.
+//!
+//! Converts source text into a stream of [`token::Token`]s for the parser.
+
 pub mod token;
 
 use std::path::PathBuf;

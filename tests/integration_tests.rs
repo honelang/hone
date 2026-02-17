@@ -3405,7 +3405,10 @@ art: for row in grid { row._ }
     let top = art[0].as_str().unwrap();
     let bottom = art[9].as_str().unwrap();
     assert!(top.starts_with(' '), "top edge should be outside the set");
-    assert!(bottom.starts_with(' '), "bottom edge should be outside the set");
+    assert!(
+        bottom.starts_with(' '),
+        "bottom edge should be outside the set"
+    );
 }
 
 #[test]

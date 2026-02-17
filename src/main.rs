@@ -583,7 +583,7 @@ fn cmd_compile(
     if !warnings.is_empty() {
         if strict {
             for w in warnings {
-                eprintln!("warning: {}", w.message);
+                eprintln!("warning{}: {}", format_warning_location(w), w.message);
             }
             return Err(hone::HoneError::compilation_error(format!(
                 "{} warning(s) treated as errors (--strict)",
@@ -592,7 +592,7 @@ fn cmd_compile(
         }
         if !quiet {
             for w in warnings {
-                eprintln!("warning: {}", w.message);
+                eprintln!("warning{}: {}", format_warning_location(w), w.message);
             }
         }
     }
@@ -604,7 +604,7 @@ fn cmd_compile(
             // Check if any secret placeholders remain in output
             let secrets = find_secret_placeholders(&value, "");
             if !secrets.is_empty() {
-                return Err(hone::HoneError::io_error(format!(
+                return Err(hone::HoneError::compilation_error(format!(
                     "secret placeholders found in output (--secrets-mode=error): {}",
                     secrets.join(", ")
                 )));
@@ -654,6 +654,15 @@ fn has_args(
     set_string: &[(String, String)],
 ) -> bool {
     !set.is_empty() || !set_file.is_empty() || !set_string.is_empty()
+}
+
+/// Format a warning's file:line location for display
+fn format_warning_location(w: &hone::Warning) -> String {
+    match (&w.file, w.line) {
+        (Some(f), line) if line > 0 => format!("[{}:{}]", f.display(), line),
+        (Some(f), _) => format!("[{}]", f.display()),
+        _ => String::new(),
+    }
 }
 
 /// Find all secret placeholders in a value tree, returning their paths
@@ -828,7 +837,7 @@ fn cmd_compile_multi(
     if !warnings.is_empty() {
         if strict {
             for w in warnings {
-                eprintln!("warning: {}", w.message);
+                eprintln!("warning{}: {}", format_warning_location(w), w.message);
             }
             return Err(hone::HoneError::compilation_error(format!(
                 "{} warning(s) treated as errors (--strict)",
@@ -837,7 +846,7 @@ fn cmd_compile_multi(
         }
         if !quiet {
             for w in warnings {
-                eprintln!("warning: {}", w.message);
+                eprintln!("warning{}: {}", format_warning_location(w), w.message);
             }
         }
     }
@@ -1069,7 +1078,6 @@ fn simple_diff(original: &str, formatted: &str) -> Vec<String> {
     let fmt_lines: Vec<&str> = formatted.lines().collect();
     let mut changes = Vec::new();
 
-    let max_len = orig_lines.len().max(fmt_lines.len());
     let mut i = 0;
     let mut j = 0;
 
@@ -1081,14 +1089,13 @@ fn simple_diff(original: &str, formatted: &str) -> Vec<String> {
             && (j >= fmt_lines.len()
                 || (j + 1 < fmt_lines.len() && orig_lines.get(i) == fmt_lines.get(j + 1)))
         {
-            // Line in original but not formatted (removed) - but actually in a formatter
-            // this means the formatted version changed this line
             changes.push(format!("-{}", orig_lines[i]));
             i += 1;
         } else if j < fmt_lines.len() {
             changes.push(format!("+{}", fmt_lines[j]));
             j += 1;
-            if i < orig_lines.len() && (i >= max_len || orig_lines.get(i) != fmt_lines.get(j)) {
+            // If the original line doesn't match the next formatted line, it was replaced
+            if i < orig_lines.len() && orig_lines.get(i) != fmt_lines.get(j) {
                 changes.push(format!("-{}", orig_lines[i]));
                 i += 1;
             }

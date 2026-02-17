@@ -1,3 +1,7 @@
+//! Error types, diagnostics, and result aliases for the Hone compiler.
+//!
+//! All user-facing errors are variants of [`HoneError`], rendered via `miette` diagnostics.
+
 use std::path::PathBuf;
 
 use miette::{Diagnostic, SourceSpan};
@@ -238,13 +242,14 @@ pub enum HoneError {
     },
 
     #[error("unexpected character")]
-    #[diagnostic(code(E0001))]
+    #[diagnostic(code(E0001), help("{help}"))]
     UnexpectedCharacter {
         #[source_code]
         src: String,
         #[label("unexpected: '{ch}'")]
         span: SourceSpan,
         ch: char,
+        help: String,
     },
 
     #[error("import not found")]
@@ -268,7 +273,7 @@ pub enum HoneError {
     },
 
     #[error("value out of range")]
-    #[diagnostic(code(E0201))]
+    #[diagnostic(code(E0201), help("{help}"))]
     ValueOutOfRange {
         #[source_code]
         src: String,
@@ -276,6 +281,7 @@ pub enum HoneError {
         span: SourceSpan,
         expected: String,
         value: String,
+        help: String,
     },
 
     #[error("type mismatch")]
@@ -352,13 +358,14 @@ pub enum HoneError {
     },
 
     #[error("circular dependency")]
-    #[diagnostic(code(E0501))]
+    #[diagnostic(code(E0501), help("{help}"))]
     CircularDependency {
         #[source_code]
         src: String,
         #[label("cycle: {cycle}")]
         span: SourceSpan,
         cycle: String,
+        help: String,
     },
 
     #[error("'for' not allowed at top level")]
@@ -506,10 +513,20 @@ impl HoneError {
         location: &SourceLocation,
         ch: char,
     ) -> Self {
+        let help = if ch == '\t' {
+            "Hone uses spaces for indentation, not tabs".to_string()
+        } else if ch == ';' {
+            "Hone does not use semicolons — use newlines to separate statements".to_string()
+        } else if ch == '`' {
+            "use double quotes \"...\" or single quotes '...' for strings".to_string()
+        } else {
+            format!("'{}' is not valid Hone syntax", ch)
+        };
         HoneError::UnexpectedCharacter {
             src: src.into(),
             span: (location.offset, location.length).into(),
             ch,
+            help,
         }
     }
 

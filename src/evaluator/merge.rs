@@ -100,31 +100,6 @@ pub fn merge_with_strategies(base: Value, overlays: Vec<(Value, MergeStrategy)>)
     result
 }
 
-/// Tracked value that remembers its merge strategy
-#[derive(Debug, Clone)]
-pub struct TrackedValue {
-    pub value: Value,
-    pub strategy: MergeStrategy,
-}
-
-impl TrackedValue {
-    pub fn new(value: Value, strategy: MergeStrategy) -> Self {
-        Self { value, strategy }
-    }
-
-    pub fn normal(value: Value) -> Self {
-        Self::new(value, MergeStrategy::Normal)
-    }
-
-    pub fn append(value: Value) -> Self {
-        Self::new(value, MergeStrategy::Append)
-    }
-
-    pub fn replace(value: Value) -> Self {
-        Self::new(value, MergeStrategy::Replace)
-    }
-}
-
 /// A builder for constructing merged configurations
 #[derive(Debug, Default)]
 pub struct MergeBuilder {
@@ -134,12 +109,6 @@ pub struct MergeBuilder {
 impl MergeBuilder {
     pub fn new() -> Self {
         Self { layers: Vec::new() }
-    }
-
-    /// Add a base layer
-    pub fn base(mut self, value: Value) -> Self {
-        self.layers.push((value, MergeStrategy::Normal));
-        self
     }
 
     /// Add an overlay layer with normal merge
@@ -297,7 +266,7 @@ mod tests {
     #[test]
     fn test_merge_builder() {
         let result = MergeBuilder::new()
-            .base(obj(&[("a", Value::Int(1))]))
+            .overlay(obj(&[("a", Value::Int(1))]))
             .overlay(obj(&[("b", Value::Int(2))]))
             .append(obj(&[("c", Value::Int(3))]))
             .build();

@@ -386,17 +386,8 @@ impl Compiler {
         ast: &File,
         resolved_import_paths: &[PathBuf],
     ) -> HoneResult<()> {
-        // Build a map of path strings to resolved paths for quick lookup
-        let mut path_map: HashMap<String, &PathBuf> = HashMap::new();
-        for resolved_path in resolved_import_paths {
-            // Extract the relative path string that would match the import
-            if let Some(file_name) = resolved_path.file_name() {
-                path_map.insert(format!("./{}", file_name.to_string_lossy()), resolved_path);
-            }
-            // Also store the full path
-            path_map.insert(resolved_path.to_string_lossy().to_string(), resolved_path);
-        }
-
+        // Import paths in resolved_import_paths are ordered to match the import
+        // statements in the AST preamble (by counting PreambleItem::Import items).
         for (idx, item) in ast.preamble.iter().enumerate() {
             if let PreambleItem::Import(import) = item {
                 // Get the resolved path for this import (by index in import_paths)
@@ -596,11 +587,15 @@ impl Compiler {
                     }
                 }
                 PolicyLevel::Warn => {
+                    let policy = policies.iter().find(|p| p.name == name);
+                    let (line, column) = policy
+                        .map(|p| (p.location.line, p.location.column))
+                        .unwrap_or((0, 0));
                     self.warnings.push(Warning {
                         message: format!("policy '{}': {}", name, message),
                         file: Some(file_path.to_path_buf()),
-                        line: 0,
-                        column: 0,
+                        line,
+                        column,
                     });
                 }
             }

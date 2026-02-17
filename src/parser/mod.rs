@@ -21,20 +21,17 @@ pub struct Parser {
     tokens: Vec<Token>,
     pos: usize,
     source: String,
-    /// Stored for future use in error messages with file context
-    _file: Option<PathBuf>,
     /// Current recursion depth
     depth: usize,
 }
 
 impl Parser {
     /// Create a new parser from a token stream
-    pub fn new(tokens: Vec<Token>, source: impl Into<String>, file: Option<PathBuf>) -> Self {
+    pub fn new(tokens: Vec<Token>, source: impl Into<String>, _file: Option<PathBuf>) -> Self {
         Self {
             tokens,
             pos: 0,
             source: source.into(),
-            _file: file,
             depth: 0,
         }
     }

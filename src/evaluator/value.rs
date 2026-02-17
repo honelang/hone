@@ -202,6 +202,55 @@ impl Value {
             _ => self == other,
         }
     }
+
+    /// Convert a Hone Value to serde_json::Value
+    pub fn to_serde_json(&self) -> serde_json::Value {
+        match self {
+            Value::Null => serde_json::Value::Null,
+            Value::Bool(b) => serde_json::Value::Bool(*b),
+            Value::Int(n) => serde_json::Value::Number(serde_json::Number::from(*n)),
+            Value::Float(n) => serde_json::Number::from_f64(*n)
+                .map(serde_json::Value::Number)
+                .unwrap_or(serde_json::Value::Null),
+            Value::String(s) => serde_json::Value::String(s.clone()),
+            Value::Array(arr) => {
+                serde_json::Value::Array(arr.iter().map(|v| v.to_serde_json()).collect())
+            }
+            Value::Object(obj) => {
+                let map: serde_json::Map<String, serde_json::Value> = obj
+                    .iter()
+                    .map(|(k, v)| (k.clone(), v.to_serde_json()))
+                    .collect();
+                serde_json::Value::Object(map)
+            }
+        }
+    }
+
+    /// Convert a serde_json::Value to Hone Value
+    pub fn from_serde_json(json: serde_json::Value) -> Value {
+        match json {
+            serde_json::Value::Null => Value::Null,
+            serde_json::Value::Bool(b) => Value::Bool(b),
+            serde_json::Value::Number(n) => {
+                if let Some(i) = n.as_i64() {
+                    Value::Int(i)
+                } else {
+                    Value::Float(n.as_f64().unwrap_or(0.0))
+                }
+            }
+            serde_json::Value::String(s) => Value::String(s),
+            serde_json::Value::Array(arr) => {
+                Value::Array(arr.into_iter().map(Value::from_serde_json).collect())
+            }
+            serde_json::Value::Object(obj) => {
+                let mut map = IndexMap::new();
+                for (k, v) in obj {
+                    map.insert(k, Value::from_serde_json(v));
+                }
+                Value::Object(map)
+            }
+        }
+    }
 }
 
 impl fmt::Display for Value {

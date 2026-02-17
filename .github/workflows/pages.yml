@@ -1,0 +1,45 @@
+# AUTO-GENERATED from pages.hone — do not edit directly.
+# Source: .github/workflows/pages.hone
+#
+name: Deploy Playground to GitHub Pages
+"on":
+  push:
+    branches: [main]
+    paths: [hone-wasm/**, playground/**, .github/workflows/pages.yml]
+  workflow_dispatch: {}
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: pages
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: hone-wasm
+      - name: Install wasm-pack
+        run: "curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh"
+      - name: Build WASM package
+        run: cd hone-wasm && wasm-pack build --target web --out-dir ../playground/pkg
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: playground
+  deploy:
+    runs-on: ubuntu-latest
+    needs: build
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

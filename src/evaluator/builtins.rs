@@ -62,7 +62,10 @@ pub fn call_builtin(
     }
 }
 
-/// Check if a name is a built-in function
+/// Check if a name is a built-in function.
+/// IMPORTANT: This list must be kept in sync with the match arms in `call_builtin` above.
+/// If you add a new builtin to `call_builtin`, add it here too, otherwise the evaluator
+/// won't recognize it as a function call and will treat it as an undefined variable.
 pub fn is_builtin(name: &str) -> bool {
     matches!(
         name,
@@ -472,77 +475,31 @@ fn builtin_default(args: Vec<Value>, location: &SourceLocation, source: &str) ->
 /// upper(string) -> string
 fn builtin_upper(args: Vec<Value>, location: &SourceLocation, source: &str) -> HoneResult<Value> {
     check_arity("upper", &args, 1, location, source)?;
-    match &args[0] {
-        Value::String(s) => Ok(Value::String(s.to_uppercase())),
-        other => Err(type_error(
-            "upper",
-            "string",
-            other.type_name(),
-            location,
-            source,
-        )),
-    }
+    let s = expect_string("upper", &args[0], location, source)?;
+    Ok(Value::String(s.to_uppercase()))
 }
 
 /// lower(string) -> string
 fn builtin_lower(args: Vec<Value>, location: &SourceLocation, source: &str) -> HoneResult<Value> {
     check_arity("lower", &args, 1, location, source)?;
-    match &args[0] {
-        Value::String(s) => Ok(Value::String(s.to_lowercase())),
-        other => Err(type_error(
-            "lower",
-            "string",
-            other.type_name(),
-            location,
-            source,
-        )),
-    }
+    let s = expect_string("lower", &args[0], location, source)?;
+    Ok(Value::String(s.to_lowercase()))
 }
 
 /// trim(string) -> string
 fn builtin_trim(args: Vec<Value>, location: &SourceLocation, source: &str) -> HoneResult<Value> {
     check_arity("trim", &args, 1, location, source)?;
-    match &args[0] {
-        Value::String(s) => Ok(Value::String(s.trim().to_string())),
-        other => Err(type_error(
-            "trim",
-            "string",
-            other.type_name(),
-            location,
-            source,
-        )),
-    }
+    let s = expect_string("trim", &args[0], location, source)?;
+    Ok(Value::String(s.trim().to_string()))
 }
 
 /// split(string, delimiter) -> [string]
 fn builtin_split(args: Vec<Value>, location: &SourceLocation, source: &str) -> HoneResult<Value> {
     check_arity("split", &args, 2, location, source)?;
-    let s = match &args[0] {
-        Value::String(s) => s,
-        other => {
-            return Err(type_error(
-                "split",
-                "string",
-                other.type_name(),
-                location,
-                source,
-            ))
-        }
-    };
-    let delimiter = match &args[1] {
-        Value::String(d) => d,
-        other => {
-            return Err(type_error(
-                "split",
-                "string (delimiter)",
-                other.type_name(),
-                location,
-                source,
-            ))
-        }
-    };
+    let s = expect_string("split", &args[0], location, source)?;
+    let delimiter = expect_string("split", &args[1], location, source)?;
     let parts: Vec<Value> = s
-        .split(delimiter.as_str())
+        .split(delimiter)
         .map(|p| Value::String(p.to_string()))
         .collect();
     Ok(Value::Array(parts))
@@ -596,43 +553,10 @@ fn builtin_join(args: Vec<Value>, location: &SourceLocation, source: &str) -> Ho
 /// replace(string, from, to) -> string
 fn builtin_replace(args: Vec<Value>, location: &SourceLocation, source: &str) -> HoneResult<Value> {
     check_arity("replace", &args, 3, location, source)?;
-    let s = match &args[0] {
-        Value::String(s) => s,
-        other => {
-            return Err(type_error(
-                "replace",
-                "string",
-                other.type_name(),
-                location,
-                source,
-            ))
-        }
-    };
-    let from = match &args[1] {
-        Value::String(f) => f,
-        other => {
-            return Err(type_error(
-                "replace",
-                "string (pattern)",
-                other.type_name(),
-                location,
-                source,
-            ))
-        }
-    };
-    let to = match &args[2] {
-        Value::String(t) => t,
-        other => {
-            return Err(type_error(
-                "replace",
-                "string (replacement)",
-                other.type_name(),
-                location,
-                source,
-            ))
-        }
-    };
-    Ok(Value::String(s.replace(from.as_str(), to.as_str())))
+    let s = expect_string("replace", &args[0], location, source)?;
+    let from = expect_string("replace", &args[1], location, source)?;
+    let to = expect_string("replace", &args[2], location, source)?;
+    Ok(Value::String(s.replace(from, to)))
 }
 
 /// base64_encode(string) -> string
@@ -642,19 +566,9 @@ fn builtin_base64_encode(
     source: &str,
 ) -> HoneResult<Value> {
     check_arity("base64_encode", &args, 1, location, source)?;
-    match &args[0] {
-        Value::String(s) => {
-            let encoded = base64::engine::general_purpose::STANDARD.encode(s.as_bytes());
-            Ok(Value::String(encoded))
-        }
-        other => Err(type_error(
-            "base64_encode",
-            "string",
-            other.type_name(),
-            location,
-            source,
-        )),
-    }
+    let s = expect_string("base64_encode", &args[0], location, source)?;
+    let encoded = base64::engine::general_purpose::STANDARD.encode(s.as_bytes());
+    Ok(Value::String(encoded))
 }
 
 /// base64_decode(string) -> string
@@ -664,40 +578,30 @@ fn builtin_base64_decode(
     source: &str,
 ) -> HoneResult<Value> {
     check_arity("base64_decode", &args, 1, location, source)?;
-    match &args[0] {
-        Value::String(s) => {
-            let bytes = base64::engine::general_purpose::STANDARD
-                .decode(s.as_bytes())
-                .map_err(|e| HoneError::TypeMismatch {
-                    src: source.to_string(),
-                    span: (location.offset, location.length).into(),
-                    expected: "valid base64 string".to_string(),
-                    found: format!("invalid base64: {}", e),
-                    help: "the input string is not valid base64".to_string(),
-                })?;
-            let decoded = String::from_utf8(bytes).map_err(|_| HoneError::TypeMismatch {
-                src: source.to_string(),
-                span: (location.offset, location.length).into(),
-                expected: "valid UTF-8 after decoding".to_string(),
-                found: "invalid UTF-8".to_string(),
-                help: "the decoded base64 data is not valid UTF-8".to_string(),
-            })?;
-            Ok(Value::String(decoded))
-        }
-        other => Err(type_error(
-            "base64_decode",
-            "string",
-            other.type_name(),
-            location,
-            source,
-        )),
-    }
+    let s = expect_string("base64_decode", &args[0], location, source)?;
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(s.as_bytes())
+        .map_err(|e| HoneError::TypeMismatch {
+            src: source.to_string(),
+            span: (location.offset, location.length).into(),
+            expected: "valid base64 string".to_string(),
+            found: format!("invalid base64: {}", e),
+            help: "the input string is not valid base64".to_string(),
+        })?;
+    let decoded = String::from_utf8(bytes).map_err(|_| HoneError::TypeMismatch {
+        src: source.to_string(),
+        span: (location.offset, location.length).into(),
+        expected: "valid UTF-8 after decoding".to_string(),
+        found: "invalid UTF-8".to_string(),
+        help: "the decoded base64 data is not valid UTF-8".to_string(),
+    })?;
+    Ok(Value::String(decoded))
 }
 
 /// to_json(value) -> string
 fn builtin_to_json(args: Vec<Value>, location: &SourceLocation, source: &str) -> HoneResult<Value> {
     check_arity("to_json", &args, 1, location, source)?;
-    let json_value = value_to_serde_json(&args[0]);
+    let json_value = args[0].to_serde_json();
     let json_string = serde_json::to_string(&json_value).map_err(|e| HoneError::TypeMismatch {
         src: source.to_string(),
         span: (location.offset, location.length).into(),
@@ -725,7 +629,7 @@ fn builtin_from_json(
                     found: format!("parse error: {}", e),
                     help: "the input string is not valid JSON".to_string(),
                 })?;
-            Ok(serde_json_to_value(json_value))
+            Ok(Value::from_serde_json(json_value))
         }
         other => Err(type_error(
             "from_json",
@@ -797,55 +701,6 @@ fn builtin_file(args: Vec<Value>, location: &SourceLocation, source: &str) -> Ho
     Ok(Value::String(contents))
 }
 
-/// Convert a Hone Value to serde_json::Value
-fn value_to_serde_json(value: &Value) -> serde_json::Value {
-    match value {
-        Value::Null => serde_json::Value::Null,
-        Value::Bool(b) => serde_json::Value::Bool(*b),
-        Value::Int(n) => serde_json::Value::Number(serde_json::Number::from(*n)),
-        Value::Float(n) => serde_json::Number::from_f64(*n)
-            .map(serde_json::Value::Number)
-            .unwrap_or(serde_json::Value::Null),
-        Value::String(s) => serde_json::Value::String(s.clone()),
-        Value::Array(arr) => {
-            serde_json::Value::Array(arr.iter().map(value_to_serde_json).collect())
-        }
-        Value::Object(obj) => {
-            let map: serde_json::Map<String, serde_json::Value> = obj
-                .iter()
-                .map(|(k, v)| (k.clone(), value_to_serde_json(v)))
-                .collect();
-            serde_json::Value::Object(map)
-        }
-    }
-}
-
-/// Convert a serde_json::Value to Hone Value
-fn serde_json_to_value(json: serde_json::Value) -> Value {
-    match json {
-        serde_json::Value::Null => Value::Null,
-        serde_json::Value::Bool(b) => Value::Bool(b),
-        serde_json::Value::Number(n) => {
-            if let Some(i) = n.as_i64() {
-                Value::Int(i)
-            } else {
-                Value::Float(n.as_f64().unwrap_or(0.0))
-            }
-        }
-        serde_json::Value::String(s) => Value::String(s),
-        serde_json::Value::Array(arr) => {
-            Value::Array(arr.into_iter().map(serde_json_to_value).collect())
-        }
-        serde_json::Value::Object(obj) => {
-            let mut map = IndexMap::new();
-            for (k, v) in obj {
-                map.insert(k, serde_json_to_value(v));
-            }
-            Value::Object(map)
-        }
-    }
-}
-
 // Helper functions
 
 fn check_arity(
@@ -909,6 +764,24 @@ fn expect_int(
     match value {
         Value::Int(n) => Ok(*n),
         other => Err(type_error(name, "int", other.type_name(), location, source)),
+    }
+}
+
+fn expect_string<'a>(
+    name: &str,
+    value: &'a Value,
+    location: &SourceLocation,
+    source: &str,
+) -> HoneResult<&'a str> {
+    match value {
+        Value::String(s) => Ok(s),
+        other => Err(type_error(
+            name,
+            "string",
+            other.type_name(),
+            location,
+            source,
+        )),
     }
 }
 

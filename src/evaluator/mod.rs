@@ -105,9 +105,16 @@ impl Evaluator {
         Ok(violations)
     }
 
-    /// Evaluate a file AST and return the result as a Value
+    /// Evaluate a file AST and return the result as a Value.
+    ///
+    /// Uses a two-pass approach over the preamble:
+    /// 1. First pass evaluates let bindings, imports, expects, secrets, etc. — everything
+    ///    that defines variables needed by the rest of the file.
+    /// 2. Second pass evaluates variant blocks separately, because variant bodies produce
+    ///    key-value output that merges into the result object (not variable definitions).
+    ///    Variants must run after all let bindings are resolved so they can reference them.
     pub fn evaluate(&mut self, file: &File) -> HoneResult<Value> {
-        // First, evaluate preamble items (let bindings, imports, etc.)
+        // Pass 1: evaluate preamble items (let bindings, imports, etc.)
         for item in &file.preamble {
             self.eval_preamble_item(item)?;
         }
@@ -115,7 +122,7 @@ impl Evaluator {
         // Then evaluate body items into an object
         let mut result = IndexMap::new();
 
-        // Evaluate variant selections and merge their body items
+        // Pass 2: evaluate variant selections and merge their body items
         for item in &file.preamble {
             if let PreambleItem::Variant(v) = item {
                 self.eval_variant(v, &mut result)?;
@@ -805,12 +812,13 @@ impl Evaluator {
                 }
                 ForBinding::Pair(k, v) => {
                     if let Value::Object(obj) = item {
+                        // Object iteration: pair binding gives (key, value)
                         if let (Some(key), Some(val)) = (obj.get("key"), obj.get("value")) {
                             self.scopes.define(k, key.clone());
                             self.scopes.define(v, val.clone());
                         }
                     } else {
-                        // For arrays with pair binding, k is index, v is value
+                        // Array iteration: pair binding gives (index, element)
                         self.scopes.define(k, Value::Int(idx as i64));
                         self.scopes.define(v, item);
                     }
@@ -892,21 +900,43 @@ impl Evaluator {
         }
     }
 
-    fn eval_add(&self, left: &Value, right: &Value, loc: &SourceLocation) -> HoneResult<Value> {
+    /// Shared numeric arithmetic: dispatches Int*Int (checked), Float*Float,
+    /// Int*Float, and Float*Int cases. Returns None for non-numeric operands.
+    fn eval_numeric(
+        &self,
+        left: &Value,
+        right: &Value,
+        loc: &SourceLocation,
+        op_sym: &str,
+        checked_int: fn(i64, i64) -> Option<i64>,
+        float_op: fn(f64, f64) -> f64,
+    ) -> HoneResult<Option<Value>> {
         match (left, right) {
             (Value::Int(a), Value::Int(b)) => {
-                a.checked_add(*b)
-                    .map(Value::Int)
-                    .ok_or_else(|| HoneError::ArithmeticOverflow {
+                let result = checked_int(*a, *b).map(Value::Int).ok_or_else(|| {
+                    HoneError::ArithmeticOverflow {
                         src: self.source.clone(),
                         span: (loc.offset, loc.length).into(),
-                        operation: format!("{} + {}", a, b),
+                        operation: format!("{} {} {}", a, op_sym, b),
                         help: "integer overflow: result exceeds i64 range".to_string(),
-                    })
+                    }
+                })?;
+                Ok(Some(result))
             }
-            (Value::Float(a), Value::Float(b)) => Ok(Value::Float(a + b)),
-            (Value::Int(a), Value::Float(b)) => Ok(Value::Float(*a as f64 + b)),
-            (Value::Float(a), Value::Int(b)) => Ok(Value::Float(a + *b as f64)),
+            (Value::Float(a), Value::Float(b)) => Ok(Some(Value::Float(float_op(*a, *b)))),
+            (Value::Int(a), Value::Float(b)) => Ok(Some(Value::Float(float_op(*a as f64, *b)))),
+            (Value::Float(a), Value::Int(b)) => Ok(Some(Value::Float(float_op(*a, *b as f64)))),
+            _ => Ok(None),
+        }
+    }
+
+    fn eval_add(&self, left: &Value, right: &Value, loc: &SourceLocation) -> HoneResult<Value> {
+        if let Some(result) =
+            self.eval_numeric(left, right, loc, "+", i64::checked_add, |a, b| a + b)?
+        {
+            return Ok(result);
+        }
+        match (left, right) {
             (Value::String(a), Value::String(b)) => Ok(Value::String(format!("{}{}", a, b))),
             (Value::Array(a), Value::Array(b)) => {
                 let mut result = a.clone();
@@ -924,53 +954,25 @@ impl Evaluator {
     }
 
     fn eval_sub(&self, left: &Value, right: &Value, loc: &SourceLocation) -> HoneResult<Value> {
-        match (left, right) {
-            (Value::Int(a), Value::Int(b)) => {
-                a.checked_sub(*b)
-                    .map(Value::Int)
-                    .ok_or_else(|| HoneError::ArithmeticOverflow {
-                        src: self.source.clone(),
-                        span: (loc.offset, loc.length).into(),
-                        operation: format!("{} - {}", a, b),
-                        help: "integer overflow: result exceeds i64 range".to_string(),
-                    })
-            }
-            (Value::Float(a), Value::Float(b)) => Ok(Value::Float(a - b)),
-            (Value::Int(a), Value::Float(b)) => Ok(Value::Float(*a as f64 - b)),
-            (Value::Float(a), Value::Int(b)) => Ok(Value::Float(a - *b as f64)),
-            _ => Err(HoneError::TypeMismatch {
+        self.eval_numeric(left, right, loc, "-", i64::checked_sub, |a, b| a - b)?
+            .ok_or_else(|| HoneError::TypeMismatch {
                 src: self.source.clone(),
                 span: (loc.offset, loc.length).into(),
                 expected: "numbers".to_string(),
                 found: format!("{} - {}", left.type_name(), right.type_name()),
                 help: "cannot subtract these types".to_string(),
-            }),
-        }
+            })
     }
 
     fn eval_mul(&self, left: &Value, right: &Value, loc: &SourceLocation) -> HoneResult<Value> {
-        match (left, right) {
-            (Value::Int(a), Value::Int(b)) => {
-                a.checked_mul(*b)
-                    .map(Value::Int)
-                    .ok_or_else(|| HoneError::ArithmeticOverflow {
-                        src: self.source.clone(),
-                        span: (loc.offset, loc.length).into(),
-                        operation: format!("{} * {}", a, b),
-                        help: "integer overflow: result exceeds i64 range".to_string(),
-                    })
-            }
-            (Value::Float(a), Value::Float(b)) => Ok(Value::Float(a * b)),
-            (Value::Int(a), Value::Float(b)) => Ok(Value::Float(*a as f64 * b)),
-            (Value::Float(a), Value::Int(b)) => Ok(Value::Float(a * *b as f64)),
-            _ => Err(HoneError::TypeMismatch {
+        self.eval_numeric(left, right, loc, "*", i64::checked_mul, |a, b| a * b)?
+            .ok_or_else(|| HoneError::TypeMismatch {
                 src: self.source.clone(),
                 span: (loc.offset, loc.length).into(),
                 expected: "numbers".to_string(),
                 found: format!("{} * {}", left.type_name(), right.type_name()),
                 help: "cannot multiply these types".to_string(),
-            }),
-        }
+            })
     }
 
     fn eval_div(&self, left: &Value, right: &Value, loc: &SourceLocation) -> HoneResult<Value> {
@@ -987,28 +989,14 @@ impl Evaluator {
             });
         }
 
-        match (left, right) {
-            (Value::Int(a), Value::Int(b)) => {
-                a.checked_div(*b)
-                    .map(Value::Int)
-                    .ok_or_else(|| HoneError::ArithmeticOverflow {
-                        src: self.source.clone(),
-                        span: (loc.offset, loc.length).into(),
-                        operation: format!("{} / {}", a, b),
-                        help: "integer overflow: i64::MIN / -1 overflows".to_string(),
-                    })
-            }
-            (Value::Float(a), Value::Float(b)) => Ok(Value::Float(a / b)),
-            (Value::Int(a), Value::Float(b)) => Ok(Value::Float(*a as f64 / b)),
-            (Value::Float(a), Value::Int(b)) => Ok(Value::Float(a / *b as f64)),
-            _ => Err(HoneError::TypeMismatch {
+        self.eval_numeric(left, right, loc, "/", i64::checked_div, |a, b| a / b)?
+            .ok_or_else(|| HoneError::TypeMismatch {
                 src: self.source.clone(),
                 span: (loc.offset, loc.length).into(),
                 expected: "numbers".to_string(),
                 found: format!("{} / {}", left.type_name(), right.type_name()),
                 help: "cannot divide these types".to_string(),
-            }),
-        }
+            })
     }
 
     fn eval_mod(&self, left: &Value, right: &Value, loc: &SourceLocation) -> HoneResult<Value> {
@@ -1053,7 +1041,9 @@ impl Evaluator {
         match (left.to_number(), right.to_number()) {
             (Some(a), Some(b)) => Ok(Value::Bool(op(a, b))),
             _ => {
-                // String comparison
+                // String comparison: convert Ordering to i32 (-1/0/1) then to f64
+                // so we can reuse the same `op` closure (e.g. PartialOrd::lt on f64).
+                // Comparing the ordering-as-number against 0.0 maps < => -1<0, > => 1>0, etc.
                 match (left, right) {
                     (Value::String(a), Value::String(b)) => {
                         Ok(Value::Bool(op(a.cmp(b) as i32 as f64, 0.0)))

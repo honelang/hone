@@ -1,0 +1,71 @@
+# GitHub Pages deployment — compiled to pages.yml
+#
+# Builds the WASM playground and deploys to GitHub Pages.
+# Edit this file, then run:
+#   hone compile .github/workflows/pages.hone --format yaml -o .github/workflows/pages.yml
+
+import "./steps.hone" as steps
+
+name: "Deploy Playground to GitHub Pages"
+
+on {
+  push {
+    branches: ["main"]
+    paths: ["hone-wasm/**", "playground/**", ".github/workflows/pages.yml"]
+  }
+  workflow_dispatch: {}
+}
+
+permissions {
+  contents: "read"
+  pages: "write"
+  "id-token": "write"
+}
+
+concurrency {
+  group: "pages"
+  "cancel-in-progress": true
+}
+
+jobs {
+  build {
+    "runs-on": "ubuntu-latest"
+    steps: [
+      steps.checkout,
+      {
+        uses: "dtolnay/rust-toolchain@stable",
+        with: { targets: "wasm32-unknown-unknown" },
+      },
+      steps.wasm_rust_cache,
+      {
+        name: "Install wasm-pack",
+        run: "curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh",
+      },
+      {
+        name: "Build WASM package",
+        run: "cd hone-wasm && wasm-pack build --target web --out-dir ../playground/pkg",
+      },
+      {
+        name: "Upload Pages artifact",
+        uses: "actions/upload-pages-artifact@v3",
+        with: { path: "playground" },
+      },
+    ]
+  }
+
+  deploy {
+    "runs-on": "ubuntu-latest"
+    needs: "build"
+    environment {
+      name: "github-pages"
+      url: '${{ steps.deployment.outputs.page_url }}'
+    }
+    steps: [
+      {
+        name: "Deploy to GitHub Pages",
+        id: "deployment",
+        uses: "actions/deploy-pages@v4",
+      },
+    ]
+  }
+}

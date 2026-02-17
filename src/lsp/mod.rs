@@ -1,10 +1,7 @@
-// Hone Language Server Protocol implementation
-//
-// Provides IDE features:
-// - Diagnostics (syntax errors, type errors)
-// - Go to definition (variables, imports)
-// - Hover (type/value information)
-// - Completions (variables in scope, keywords)
+//! Hone Language Server Protocol implementation.
+//!
+//! Provides IDE features: diagnostics, go-to-definition, hover, completions,
+//! find references, rename, and schema-aware field suggestions.
 
 use dashmap::DashMap;
 use ropey::Rope;
@@ -330,7 +327,9 @@ impl HoneLanguageServer {
         items
     }
 
-    /// Get hover information at the given position
+    /// Get hover information at the given position.
+    /// Checks are intentionally sequential and return on first match (priority order):
+    /// builtins > schema fields > variables > keywords, so the most specific hover wins.
     fn get_hover(&self, uri: &Url, position: Position) -> Option<Hover> {
         let doc = self.documents.get(uri)?;
         let content = doc.text();
@@ -614,27 +613,12 @@ impl HoneLanguageServer {
             None => return locations,
         };
 
-        // Check if this is a variable defined in the file
-        let is_defined = if let Some(ref ast) = doc.ast {
-            ast.preamble.iter().any(|item| {
-                if let PreambleItem::Let(binding) = item {
-                    binding.name == word
-                } else {
-                    false
-                }
-            }) || ast.body.iter().any(|item| {
-                if let BodyItem::Let(binding) = item {
-                    binding.name == word
-                } else {
-                    false
-                }
-            })
-        } else {
-            false
-        };
+        let is_defined = doc
+            .ast
+            .as_ref()
+            .is_some_and(|ast| Self::is_defined_variable(ast, &word));
 
         if !is_defined {
-            // Not a defined variable, don't search for references
             return locations;
         }
 
@@ -701,24 +685,10 @@ impl HoneLanguageServer {
         let line = lines[line_idx];
         let word = get_word_at_position(line, char_idx)?;
 
-        // Check if this is a variable that can be renamed
-        let is_defined = if let Some(ref ast) = doc.ast {
-            ast.preamble.iter().any(|item| {
-                if let PreambleItem::Let(binding) = item {
-                    binding.name == word
-                } else {
-                    false
-                }
-            }) || ast.body.iter().any(|item| {
-                if let BodyItem::Let(binding) = item {
-                    binding.name == word
-                } else {
-                    false
-                }
-            })
-        } else {
-            false
-        };
+        let is_defined = doc
+            .ast
+            .as_ref()
+            .is_some_and(|ast| Self::is_defined_variable(ast, &word));
 
         if !is_defined {
             return None;
@@ -768,24 +738,10 @@ impl HoneLanguageServer {
         let line = lines[line_idx];
         let old_name = get_word_at_position(line, char_idx)?;
 
-        // Check if this is a valid variable
-        let is_defined = if let Some(ref ast) = doc.ast {
-            ast.preamble.iter().any(|item| {
-                if let PreambleItem::Let(binding) = item {
-                    binding.name == old_name
-                } else {
-                    false
-                }
-            }) || ast.body.iter().any(|item| {
-                if let BodyItem::Let(binding) = item {
-                    binding.name == old_name
-                } else {
-                    false
-                }
-            })
-        } else {
-            false
-        };
+        let is_defined = doc
+            .ast
+            .as_ref()
+            .is_some_and(|ast| Self::is_defined_variable(ast, &old_name));
 
         if !is_defined {
             return None;
@@ -813,12 +769,22 @@ impl HoneLanguageServer {
         })
     }
 
-    /// Find definition location for a symbol
+    /// Check if `name` is a let-bound variable in the AST (preamble or body).
+    fn is_defined_variable(ast: &File, name: &str) -> bool {
+        ast.preamble
+            .iter()
+            .any(|item| matches!(item, PreambleItem::Let(b) if b.name == name))
+            || ast
+                .body
+                .iter()
+                .any(|item| matches!(item, BodyItem::Let(b) if b.name == name))
+    }
+
+    /// Find definition location for a symbol using AST binding locations.
     fn find_definition(&self, uri: &Url, position: Position) -> Option<Location> {
         let doc = self.documents.get(uri)?;
         let content = doc.text();
 
-        // Get the word at position
         let line_idx = position.line as usize;
         let char_idx = position.character as usize;
 
@@ -830,48 +796,40 @@ impl HoneLanguageServer {
         let line = lines[line_idx];
         let word = get_word_at_position(line, char_idx)?;
 
-        // Search for the definition in the AST
         if let Some(ref ast) = doc.ast {
-            // Helper to find a let binding and return its location
-            let find_let = |name: &str| -> Option<Location> {
-                // Search in the content for the let declaration
-                for (line_num, line_content) in content.lines().enumerate() {
-                    if line_content.contains(&format!("let {} =", name))
-                        || line_content.contains(&format!("let {}=", name))
-                        || line_content.contains(&format!("let {}", name))
-                    {
-                        let char_start = line_content.find("let").unwrap_or(0) + 4;
-                        return Some(Location {
-                            uri: uri.clone(),
-                            range: Range {
-                                start: Position {
-                                    line: line_num as u32,
-                                    character: char_start as u32,
-                                },
-                                end: Position {
-                                    line: line_num as u32,
-                                    character: (char_start + name.len()) as u32,
-                                },
-                            },
-                        });
-                    }
+            // Use the binding's SourceLocation from the AST directly
+            let make_location = |loc: &crate::lexer::token::SourceLocation, name: &str| {
+                // location.line/column are 1-based in the AST
+                let line = loc.line.saturating_sub(1) as u32;
+                let col = loc.column.saturating_sub(1) as u32;
+                // The location points to 'let'; the name starts 4 chars later
+                let char_start = col + 4;
+                Location {
+                    uri: uri.clone(),
+                    range: Range {
+                        start: Position {
+                            line,
+                            character: char_start,
+                        },
+                        end: Position {
+                            line,
+                            character: char_start + name.len() as u32,
+                        },
+                    },
                 }
-                None
             };
 
-            // Check preamble
             for item in &ast.preamble {
                 if let PreambleItem::Let(binding) = item {
                     if binding.name == word {
-                        return find_let(&binding.name);
+                        return Some(make_location(&binding.location, &binding.name));
                     }
                 }
             }
-            // Check body
             for item in &ast.body {
                 if let BodyItem::Let(binding) = item {
                     if binding.name == word {
-                        return find_let(&binding.name);
+                        return Some(make_location(&binding.location, &binding.name));
                     }
                 }
             }

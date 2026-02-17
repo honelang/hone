@@ -11,11 +11,47 @@ use crate::errors::{HoneError, HoneResult};
 use crate::evaluator::Value;
 use crate::lexer::token::SourceLocation;
 use crate::parser::ast::{
-    File, PreambleItem, SchemaDefinition, SchemaField, TypeAliasDefinition, TypeConstraint,
+    Expr, File, PreambleItem, SchemaDefinition, SchemaField, TypeAliasDefinition, TypeConstraint,
     TypeExpr,
 };
 
 use std::collections::{HashMap, HashSet};
+
+/// Extract an integer value from a constraint expression, handling unary negation.
+fn extract_int(expr: &crate::parser::ast::Expr) -> Option<i64> {
+    use crate::parser::ast::{Expr, UnaryOp};
+    match expr {
+        Expr::Integer(n, _) => Some(*n),
+        Expr::Unary(unary) if unary.op == UnaryOp::Neg => {
+            if let Expr::Integer(n, _) = unary.operand.as_ref() {
+                Some(-*n)
+            } else {
+                None
+            }
+        }
+        _ => None,
+    }
+}
+
+/// Extract a float value from a constraint expression, handling unary negation
+/// and int-to-float promotion.
+fn extract_float(expr: &crate::parser::ast::Expr) -> Option<f64> {
+    use crate::parser::ast::{Expr, UnaryOp};
+    match expr {
+        Expr::Float(n, _) => Some(*n),
+        Expr::Integer(n, _) => Some(*n as f64),
+        Expr::Unary(unary) if unary.op == UnaryOp::Neg => {
+            if let Expr::Float(n, _) = unary.operand.as_ref() {
+                Some(-*n)
+            } else if let Expr::Integer(n, _) = unary.operand.as_ref() {
+                Some(-(*n as f64))
+            } else {
+                None
+            }
+        }
+        _ => None,
+    }
+}
 
 /// Type checker for Hone files
 pub struct TypeChecker {
@@ -27,6 +63,8 @@ pub struct TypeChecker {
     source: String,
     /// Paths marked with @unchecked (skip type checking)
     unchecked_paths: HashSet<String>,
+    /// Cache of compiled regexes for string pattern constraints
+    regex_cache: HashMap<String, regex::Regex>,
 }
 
 /// Compiled schema for type checking
@@ -56,6 +94,7 @@ impl TypeChecker {
             type_aliases: HashMap::new(),
             source,
             unchecked_paths: HashSet::new(),
+            regex_cache: HashMap::new(),
         }
     }
 
@@ -64,12 +103,14 @@ impl TypeChecker {
         self.unchecked_paths = paths;
     }
 
-    /// Collect and compile schema definitions and type aliases from a file
+    /// Collect and compile schema definitions and type aliases from a file.
+    /// Regex patterns are pre-compiled and cached for O(1) lookups at check time.
     pub fn collect_schemas(&mut self, file: &File) -> HoneResult<()> {
         // First pass: collect type aliases (they may be referenced by schemas)
         for item in &file.preamble {
             if let PreambleItem::TypeAlias(alias_def) = item {
                 let resolved_type = self.compile_type_alias(alias_def)?;
+                self.cache_regex_from_type(&resolved_type);
                 self.type_aliases
                     .insert(alias_def.name.clone(), resolved_type);
             }
@@ -79,10 +120,26 @@ impl TypeChecker {
         for item in &file.preamble {
             if let PreambleItem::Schema(schema_def) = item {
                 let schema = self.compile_schema(schema_def)?;
+                for field in &schema.fields {
+                    self.cache_regex_from_type(&field.field_type);
+                }
                 self.schemas.insert(schema.name.clone(), schema);
             }
         }
         Ok(())
+    }
+
+    /// Pre-compile and cache any regex pattern found in a type.
+    fn cache_regex_from_type(&mut self, ty: &Type) {
+        if let Type::StringConstrained(c) = ty {
+            if let Some(ref pat) = c.pattern {
+                if !self.regex_cache.contains_key(pat) {
+                    if let Ok(re) = regex::Regex::new(pat) {
+                        self.regex_cache.insert(pat.clone(), re);
+                    }
+                }
+            }
+        }
     }
 
     /// Compile a type alias definition into a Type
@@ -92,43 +149,6 @@ impl TypeChecker {
 
     /// Compile a type expression into a Type
     fn compile_type_expr(&self, expr: &TypeExpr) -> HoneResult<Type> {
-        use crate::parser::ast::Expr;
-
-        // Helper to extract an integer from an expression
-        fn extract_int(expr: &Expr) -> Option<i64> {
-            match expr {
-                Expr::Integer(n, _) => Some(*n),
-                Expr::Unary(unary) => {
-                    if unary.op == crate::parser::ast::UnaryOp::Neg {
-                        if let Expr::Integer(n, _) = unary.operand.as_ref() {
-                            return Some(-*n);
-                        }
-                    }
-                    None
-                }
-                _ => None,
-            }
-        }
-
-        fn extract_float(expr: &Expr) -> Option<f64> {
-            match expr {
-                Expr::Float(n, _) => Some(*n),
-                Expr::Integer(n, _) => Some(*n as f64),
-                Expr::Unary(unary) => {
-                    if unary.op == crate::parser::ast::UnaryOp::Neg {
-                        if let Expr::Float(n, _) = unary.operand.as_ref() {
-                            return Some(-*n);
-                        }
-                        if let Expr::Integer(n, _) = unary.operand.as_ref() {
-                            return Some(-(*n as f64));
-                        }
-                    }
-                    None
-                }
-                _ => None,
-            }
-        }
-
         match expr {
             TypeExpr::Named { name, args } => {
                 // Check if it's a type alias first (with no args)
@@ -279,45 +299,6 @@ impl TypeChecker {
 
     /// Parse a type constraint into a Type
     fn parse_type_constraint(&self, constraint: &TypeConstraint) -> HoneResult<Type> {
-        use crate::parser::ast::Expr;
-
-        // Helper to extract an integer from an expression
-        fn extract_int(expr: &Expr) -> Option<i64> {
-            match expr {
-                Expr::Integer(n, _) => Some(*n),
-                Expr::Unary(unary) => {
-                    // Handle negative numbers: -1
-                    if unary.op == crate::parser::ast::UnaryOp::Neg {
-                        if let Expr::Integer(n, _) = unary.operand.as_ref() {
-                            return Some(-*n);
-                        }
-                    }
-                    None
-                }
-                _ => None,
-            }
-        }
-
-        // Helper to extract a float from an expression
-        fn extract_float(expr: &Expr) -> Option<f64> {
-            match expr {
-                Expr::Float(n, _) => Some(*n),
-                Expr::Integer(n, _) => Some(*n as f64),
-                Expr::Unary(unary) => {
-                    if unary.op == crate::parser::ast::UnaryOp::Neg {
-                        if let Expr::Float(n, _) = unary.operand.as_ref() {
-                            return Some(-*n);
-                        }
-                        if let Expr::Integer(n, _) = unary.operand.as_ref() {
-                            return Some(-(*n as f64));
-                        }
-                    }
-                    None
-                }
-                _ => None,
-            }
-        }
-
         let base_type = match constraint.name.as_str() {
             "string" => {
                 if constraint.args.is_empty() {
@@ -463,6 +444,7 @@ impl TypeChecker {
                             span: (location.offset, location.length).into(),
                             expected: format!("{}", expected),
                             value: format!("{}", n),
+                            help: format!("value {} is less than minimum {}", n, min),
                         });
                     }
                 }
@@ -473,6 +455,7 @@ impl TypeChecker {
                             span: (location.offset, location.length).into(),
                             expected: format!("{}", expected),
                             value: format!("{}", n),
+                            help: format!("value {} is greater than maximum {}", n, max),
                         });
                     }
                 }
@@ -488,6 +471,7 @@ impl TypeChecker {
                             span: (location.offset, location.length).into(),
                             expected: format!("{}", expected),
                             value: format!("{}", n),
+                            help: format!("value {} is less than minimum {}", n, min),
                         });
                     }
                 }
@@ -498,6 +482,7 @@ impl TypeChecker {
                             span: (location.offset, location.length).into(),
                             expected: format!("{}", expected),
                             value: format!("{}", n),
+                            help: format!("value {} is greater than maximum {}", n, max),
                         });
                     }
                 }
@@ -514,6 +499,10 @@ impl TypeChecker {
                             span: (location.offset, location.length).into(),
                             expected: format!("{}", expected),
                             value: format!("string of length {}", char_count),
+                            help: format!(
+                                "string length {} is less than minimum {}",
+                                char_count, min_len
+                            ),
                         });
                     }
                 }
@@ -524,12 +513,22 @@ impl TypeChecker {
                             span: (location.offset, location.length).into(),
                             expected: format!("{}", expected),
                             value: format!("string of length {}", char_count),
+                            help: format!(
+                                "string length {} is greater than maximum {}",
+                                char_count, max_len
+                            ),
                         });
                     }
                 }
                 if let Some(ref pattern) = constraints.pattern {
-                    match regex::Regex::new(pattern) {
-                        Ok(re) => {
+                    // Use cached regex (pre-compiled in collect_schemas), fall back to compiling
+                    let re = self
+                        .regex_cache
+                        .get(pattern)
+                        .cloned()
+                        .or_else(|| regex::Regex::new(pattern).ok());
+                    match re {
+                        Some(re) => {
                             if !re.is_match(s) {
                                 return Err(HoneError::PatternMismatch {
                                     src: self.source.clone(),
@@ -543,13 +542,13 @@ impl TypeChecker {
                                 });
                             }
                         }
-                        Err(e) => {
+                        None => {
                             return Err(HoneError::TypeMismatch {
                                 src: self.source.clone(),
                                 span: (location.offset, location.length).into(),
                                 expected: "valid regex pattern".to_string(),
                                 found: format!("\"{}\"", pattern),
-                                help: format!("invalid regex: {}", e),
+                                help: format!("invalid regex pattern: \"{}\"", pattern),
                             });
                         }
                     }
@@ -618,7 +617,16 @@ impl TypeChecker {
                 span: (location.offset, location.length).into(),
                 expected: format!("{}", expected),
                 found: value.type_name().to_string(),
-                help: "check the value type".to_string(),
+                help: if path.is_empty() {
+                    format!("expected {}, got {}", expected, value.type_name())
+                } else {
+                    format!(
+                        "at {}: expected {}, got {}",
+                        path,
+                        expected,
+                        value.type_name()
+                    )
+                },
             }),
         }
     }
@@ -758,11 +766,13 @@ impl TypeChecker {
                 span,
                 expected,
                 value,
+                help,
             } => HoneError::ValueOutOfRange {
                 src,
                 span,
                 expected: format!("at array index {}: {}", index, expected),
                 value,
+                help: format!("at array index {}: {}", index, help),
             },
             HoneError::PatternMismatch {
                 src,
