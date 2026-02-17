@@ -43,8 +43,9 @@ jobs:
           ./target/release/hone compile .github/workflows/ci.hone --format yaml > /tmp/ci-check.yml
           # Strip the auto-generated header (first 3 lines) before comparing
           tail -n +4 .github/workflows/ci.yml > /tmp/ci-current.yml
-          # Normalize trailing newlines before diff
-          sed -i -e '$a' /tmp/ci-current.yml /tmp/ci-check.yml
+          # Ensure both files end with a newline
+          [ -n "$(tail -c1 /tmp/ci-current.yml)" ] && echo >> /tmp/ci-current.yml
+          [ -n "$(tail -c1 /tmp/ci-check.yml)" ] && echo >> /tmp/ci-check.yml
           diff -u /tmp/ci-current.yml /tmp/ci-check.yml || (echo "ci.yml is out of date! Recompile from ci.hone" && exit 1)
   wasm:
     runs-on: ubuntu-latest
