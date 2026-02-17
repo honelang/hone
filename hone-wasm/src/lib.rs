@@ -43,6 +43,7 @@ pub fn compile(source: &str, format: &str, variant_json: &str, args_json: &str) 
         "yaml" | "YAML" => OutputFormat::Yaml,
         "toml" | "TOML" => OutputFormat::Toml,
         "dotenv" | "env" => OutputFormat::Dotenv,
+        "json-pretty" => OutputFormat::JsonPretty,
         _ => OutputFormat::Json,
     };
 

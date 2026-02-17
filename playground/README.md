@@ -2,6 +2,8 @@
 
 A browser-based playground for the Hone configuration language, powered by a WebAssembly build of the compiler.
 
+**Live at: [honelang.github.io/hone](https://honelang.github.io/hone/)**
+
 ## Local usage
 
 Open `index.html` directly in a browser:
@@ -60,40 +62,7 @@ The playground is a static site with no server dependencies. Deploy it anywhere 
 
 ### GitHub Pages
 
-Add a GitHub Actions workflow to build and deploy:
-
-```yaml
-name: Deploy Playground
-on:
-  push:
-    branches: [main]
-
-jobs:
-  deploy:
-    runs-on: ubuntu-latest
-    permissions:
-      pages: write
-      id-token: write
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: wasm32-unknown-unknown
-      - name: Install wasm-pack
-        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
-      - name: Build WASM
-        run: wasm-pack build hone-wasm --target web --out-dir ../playground/pkg
-      - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: playground
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
-```
+The playground is automatically deployed to [honelang.github.io/hone](https://honelang.github.io/hone/) via the `.github/workflows/pages.yml` workflow (source: `pages.hone`). It triggers on pushes to `main` that touch `hone-wasm/`, `playground/`, or the workflow itself.
 
 ### Netlify / Vercel / Cloudflare Pages
 

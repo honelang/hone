@@ -2,7 +2,7 @@
 
 **A configuration language that compiles to JSON, YAML, TOML, and .env** -- variables, loops, imports, schemas, and deep merge for the configs you already write.
 
-[Getting Started](docs/getting-started.md) | [Language Reference](docs/language-reference.md) | [CLI Reference](docs/cli-reference.md) | [Playground](playground/)
+[Getting Started](docs/getting-started.md) | [Language Reference](docs/language-reference.md) | [CLI Reference](docs/cli-reference.md) | [Playground](https://honelang.github.io/hone/)
 
 ```hone
 let app = "api"
@@ -511,7 +511,9 @@ See [editor setup guide](docs/editor-setup.md) for Neovim, Helix, and Sublime Te
 
 ## Playground
 
-A browser-based playground is included in the `playground/` directory, powered by a WASM build of the Hone compiler. Open `playground/index.html` to try Hone without installing anything -- edit source on the left, see compiled output on the right in real time.
+Try Hone in your browser at **[honelang.github.io/hone](https://honelang.github.io/hone/)** -- edit source on the left, see compiled output on the right in real time. No installation required.
+
+The playground is powered by a WebAssembly build of the full Hone compiler. Source is in `playground/`.
 
 ---
 

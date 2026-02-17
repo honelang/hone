@@ -84,6 +84,20 @@
       color: var(--accent);
     }
 
+    .toggle-label {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 13px;
+      color: var(--text-dim);
+      cursor: pointer;
+    }
+
+    .toggle-label input[type="checkbox"] {
+      accent-color: var(--accent);
+      cursor: pointer;
+    }
+
     .options-bar {
       display: flex;
       align-items: center;
@@ -226,6 +240,9 @@
         <option value="toml">TOML</option>
         <option value="dotenv">.env</option>
       </select>
+      <label class="toggle-label" id="prettyToggle" style="display: none;">
+        <input type="checkbox" id="prettyPrint" checked> Pretty
+      </label>
       <button class="format-btn" onclick="formatCode()">Format</button>
       <button class="share" onclick="share()">Share</button>
     </div>
@@ -269,6 +286,8 @@
     const variantInput = document.getElementById('variantInput');
     const argsInput = document.getElementById('argsInput');
     const optionsBar = document.getElementById('optionsBar');
+    const prettyPrint = document.getElementById('prettyPrint');
+    const prettyToggle = document.getElementById('prettyToggle');
     let currentFormat = 'yaml';
     let debounceTimer;
 
@@ -459,6 +478,7 @@ debug: args.debug`
       }
 
       updateOptionsBarVisibility();
+      updateTabs();
       doCompile();
 
       sourceEl.addEventListener('input', () => {
@@ -497,6 +517,8 @@ debug: args.debug`
         examplesSelect.value = '';
       });
 
+      prettyPrint.addEventListener('change', doCompile);
+
       // Recompile when variant/args inputs change
       variantInput.addEventListener('input', () => {
         clearTimeout(debounceTimer);
@@ -519,7 +541,8 @@ debug: args.debug`
 
       const variantJson = parseKeyValues(variantInput.value);
       const argsJson = parseKeyValues(argsInput.value);
-      const result = compile(source, currentFormat, variantJson, argsJson);
+      const fmt = (currentFormat === 'json' && prettyPrint.checked) ? 'json-pretty' : currentFormat;
+      const result = compile(source, fmt, variantJson, argsJson);
 
       if (result.success) {
         outputEl.textContent = result.output;
@@ -538,6 +561,7 @@ debug: args.debug`
       document.querySelectorAll('.tab').forEach(tab => {
         tab.classList.toggle('active', tab.dataset.format === currentFormat);
       });
+      prettyToggle.style.display = currentFormat === 'json' ? '' : 'none';
     }
 
     window.setFormat = function(fmt) {
