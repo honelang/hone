@@ -896,4 +896,68 @@ port: 80
         let resolved = resolver.resolve("/child.hone").unwrap();
         assert_eq!(resolved.from_path, Some(PathBuf::from("/base.hone")));
     }
+
+    #[test]
+    fn test_relative_dot_slash_paths() {
+        // Reproduces the playground scenario: files keyed with ./ prefixes
+        let mut resolver = VirtualResolver::new(HashMap::new());
+        resolver.add_file(
+            PathBuf::from("./config.hone"),
+            "let app_name = \"catapult\"\nlet version = \"1.0.0\"",
+        );
+        resolver.add_file(
+            PathBuf::from("./main.hone"),
+            "import \"./config.hone\" as config\nname: config.app_name",
+        );
+
+        let resolved = resolver.resolve("./main.hone").unwrap();
+        assert_eq!(resolved.import_paths, vec![PathBuf::from("config.hone")]);
+
+        // The imported file should also be resolved
+        let config = resolver.get(Path::new("config.hone"));
+        assert!(
+            config.is_some(),
+            "config.hone should be resolved via import"
+        );
+
+        // Topological order should work
+        let order = resolver
+            .topological_order(Path::new("./main.hone"))
+            .unwrap();
+        assert_eq!(order.len(), 2);
+        assert_eq!(order[0].path, PathBuf::from("config.hone"));
+        assert_eq!(order[1].path, PathBuf::from("main.hone"));
+    }
+
+    #[test]
+    fn test_relative_dot_slash_multi_import() {
+        // Mirrors the microservices example: main imports config, resources, schemas;
+        // schemas also imports config
+        let mut resolver = VirtualResolver::new(HashMap::new());
+        resolver.add_file(PathBuf::from("./config.hone"), "let port = 8080");
+        resolver.add_file(
+            PathBuf::from("./resources.hone"),
+            "let api = { cpu: \"100m\" }",
+        );
+        resolver.add_file(
+            PathBuf::from("./schemas.hone"),
+            "import \"./config.hone\" as config\nschema Stack {\n  ...\n}",
+        );
+        resolver.add_file(
+            PathBuf::from("./main.hone"),
+            "import \"./config.hone\" as config\nimport \"./resources.hone\" as res\nimport \"./schemas.hone\" as schemas\nport: config.port",
+        );
+
+        let resolved = resolver.resolve("./main.hone");
+        assert!(
+            resolved.is_ok(),
+            "should resolve all imports: {:?}",
+            resolved.err()
+        );
+
+        let order = resolver
+            .topological_order(Path::new("./main.hone"))
+            .unwrap();
+        assert_eq!(order.len(), 4);
+    }
 }
