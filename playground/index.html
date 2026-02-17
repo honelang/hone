@@ -211,18 +211,9 @@
       color: var(--text);
     }
 
-    textarea {
+    #editor-container {
       flex: 1;
-      background: var(--bg);
-      color: var(--text);
-      border: none;
-      padding: 12px;
-      font-family: "JetBrains Mono", "Fira Code", "Cascadia Code", "Consolas", monospace;
-      font-size: 14px;
-      line-height: 1.5;
-      resize: none;
-      outline: none;
-      tab-size: 2;
+      overflow: hidden;
     }
 
     #output {
@@ -248,6 +239,7 @@
     .status.ok { color: var(--success); }
     .status.err { color: var(--error); }
   </style>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs/loader.min.js"></script>
 </head>
 <body>
   <header>
@@ -292,7 +284,7 @@
         <span class="status" id="status"></span>
       </div>
       <div class="file-tabs" id="fileTabs" style="display: none;"></div>
-      <textarea id="source" spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off"></textarea>
+      <div id="editor-container"></div>
     </div>
     <div class="pane">
       <div class="pane-header">
@@ -309,10 +301,11 @@
   </div>
 
   <script type="module">
-    import init, { compile, compile_project, format_source } from './pkg/hone_wasm.js';
+    import init, { compile, compile_project, format_source, get_diagnostics, get_completions, get_hover } from './pkg/hone_wasm.js';
 
     let wasm;
-    const sourceEl = document.getElementById('source');
+    let editor; // Monaco editor instance
+    let monaco; // Monaco namespace
     const outputEl = document.getElementById('output');
     const statusEl = document.getElementById('status');
     const formatSelect = document.getElementById('format');
@@ -326,6 +319,7 @@
     const outputTabsEl = document.getElementById('outputTabs');
     let currentFormat = 'yaml';
     let debounceTimer;
+    let diagnosticsTimer;
 
     // Multi-file state
     let projectFiles = {};     // { filename: source }
@@ -1482,14 +1476,22 @@ let enable_service = {
       return Object.keys(obj).length > 0 ? JSON.stringify(obj) : '';
     }
 
+    // --- Helper: get editor value ---
+    function getEditorValue() {
+      return editor ? editor.getValue() : '';
+    }
+
+    function setEditorValue(value) {
+      if (editor) editor.setValue(value);
+    }
+
     // Show options bar if source contains variant or expect
     function updateOptionsBarVisibility() {
-      // Check all files if multi-file, or just the source
       let allSource;
       if (isMultiFile) {
         allSource = Object.values(projectFiles).join('\n');
       } else {
-        allSource = sourceEl.value;
+        allSource = getEditorValue();
       }
       const hasVariant = /\bvariant\b/.test(allSource);
       const hasExpect = /\bexpect\b/.test(allSource);
@@ -1497,16 +1499,39 @@ let enable_service = {
     }
 
     // --- Tab management ---
-    // Track which file is the entry point for multi-file projects
     let entryPointFile = null;
+    // Monaco models per file (for multi-file)
+    let fileModels = {}; // { filename: monaco.editor.ITextModel }
+    // Cursor state per file
+    let fileCursorStates = {}; // { filename: editor.saveViewState() }
 
     function setProjectFiles(files, entry) {
+      disposeFileModels();
       projectFiles = { ...files };
       activeFile = entry;
       entryPointFile = entry;
       isMultiFile = Object.keys(files).length > 1;
       renderFileTabs();
-      sourceEl.value = projectFiles[activeFile] || '';
+      if (editor && monaco) {
+        // Create models for each file
+        for (const [name, source] of Object.entries(projectFiles)) {
+          const uri = monaco.Uri.parse('inmemory://model/' + name);
+          fileModels[name] = monaco.editor.createModel(source, 'hone', uri);
+        }
+        if (fileModels[activeFile]) {
+          editor.setModel(fileModels[activeFile]);
+        }
+      } else {
+        // Fallback before Monaco is loaded
+      }
+    }
+
+    function disposeFileModels() {
+      for (const model of Object.values(fileModels)) {
+        model.dispose();
+      }
+      fileModels = {};
+      fileCursorStates = {};
     }
 
     function getEntryPoint() {
@@ -1515,11 +1540,18 @@ let enable_service = {
     }
 
     function setSingleFile(source) {
+      disposeFileModels();
       projectFiles = {};
       activeFile = null;
       isMultiFile = false;
       renderFileTabs();
-      sourceEl.value = source;
+      if (editor && monaco) {
+        // Use a single default model
+        const uri = monaco.Uri.parse('inmemory://model/main.hone');
+        const model = monaco.editor.createModel(source, 'hone', uri);
+        fileModels['__single__'] = model;
+        editor.setModel(model);
+      }
     }
 
     function renderFileTabs() {
@@ -1534,7 +1566,6 @@ let enable_service = {
       for (const name of filenames) {
         const tab = document.createElement('div');
         tab.className = 'file-tab' + (name === activeFile ? ' active' : '');
-        // Show short name: strip leading ./
         tab.textContent = name.replace(/^\.\//, '');
         tab.onclick = () => switchToFile(name);
         fileTabsEl.appendChild(tab);
@@ -1542,18 +1573,33 @@ let enable_service = {
     }
 
     function switchToFile(name) {
+      if (!editor) return;
       if (activeFile && isMultiFile) {
-        // Save current content
-        projectFiles[activeFile] = sourceEl.value;
+        // Save current content and cursor state
+        projectFiles[activeFile] = getEditorValue();
+        fileCursorStates[activeFile] = editor.saveViewState();
       }
       activeFile = name;
-      sourceEl.value = projectFiles[name] || '';
+      if (fileModels[name]) {
+        editor.setModel(fileModels[name]);
+        if (fileCursorStates[name]) {
+          editor.restoreViewState(fileCursorStates[name]);
+        }
+      }
       renderFileTabs();
     }
 
     function saveActiveFile() {
       if (isMultiFile && activeFile) {
-        projectFiles[activeFile] = sourceEl.value;
+        projectFiles[activeFile] = getEditorValue();
+        // Sync model content
+        if (fileModels[activeFile]) {
+          const model = fileModels[activeFile];
+          const editorVal = getEditorValue();
+          if (model.getValue() !== editorVal) {
+            model.setValue(editorVal);
+          }
+        }
       }
     }
 
@@ -1580,8 +1626,267 @@ let enable_service = {
       renderOutputTabs();
     }
 
+    // --- Monaco setup ---
+    function setupMonaco() {
+      return new Promise((resolve) => {
+        window.require.config({
+          paths: { vs: 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs' }
+        });
+        window.require(['vs/editor/editor.main'], (m) => {
+          monaco = m;
+          registerHoneLanguage(monaco);
+          defineCatppuccinTheme(monaco);
+          resolve(monaco);
+        });
+      });
+    }
+
+    function registerHoneLanguage(monaco) {
+      monaco.languages.register({ id: 'hone' });
+
+      monaco.languages.setMonarchTokensProvider('hone', {
+        keywords: [
+          'let', 'when', 'else', 'for', 'in', 'import', 'from', 'as',
+          'schema', 'variant', 'assert', 'expect', 'secret', 'policy',
+          'use', 'type', 'deny', 'warn', 'default', 'extends',
+        ],
+        builtins: [
+          'len', 'keys', 'values', 'contains', 'concat', 'merge', 'flatten',
+          'upper', 'lower', 'trim', 'split', 'join', 'replace', 'range',
+          'base64_encode', 'base64_decode', 'to_json', 'from_json',
+          'to_str', 'to_int', 'to_float', 'to_bool', 'env', 'file',
+        ],
+        constants: ['true', 'false', 'null'],
+        operators: [
+          '+:', '!:', '...', '??', '==', '!=', '<=', '>=', '&&', '||',
+          '+', '-', '*', '/', '%', '<', '>', '!', '?', ':',
+        ],
+        symbols: /[=><!~?:&|+\-*\/\^%]+/,
+        escapes: /\\(?:[abfnrtv\\"']|\$\{|x[0-9A-Fa-f]{2}|u[0-9A-Fa-f]{4})/,
+
+        tokenizer: {
+          root: [
+            // Document separator
+            [/^---\w*/, 'keyword.control'],
+            // Comments
+            [/#.*$/, 'comment'],
+            // Triple-quoted strings
+            [/"""/, 'string', '@tripleString'],
+            // Double-quoted strings with interpolation
+            [/"/, 'string', '@string'],
+            // Single-quoted literal strings
+            [/'[^']*'/, 'string'],
+            // Numbers
+            [/\b\d+\.\d+([eE][+-]?\d+)?\b/, 'number.float'],
+            [/\b\d+([eE][+-]?\d+)?\b/, 'number'],
+            // Identifiers and keywords
+            [/[a-zA-Z_]\w*/, {
+              cases: {
+                '@keywords': 'keyword',
+                '@builtins': 'support.function',
+                '@constants': 'constant.language',
+                '@default': 'identifier',
+              },
+            }],
+            // Operators
+            [/\.\.\./, 'operator'],
+            [/[+!]:/, 'operator'],
+            [/@symbols/, 'operator'],
+            // Brackets
+            [/[{}()\[\]]/, '@brackets'],
+            // Decorators (@unchecked)
+            [/@\w+/, 'annotation'],
+          ],
+          string: [
+            [/\$\{/, { token: 'delimiter.bracket', next: '@interpolation' }],
+            [/[^\\"$]+/, 'string'],
+            [/@escapes/, 'string.escape'],
+            [/\\./, 'string.escape.invalid'],
+            [/"/, 'string', '@pop'],
+          ],
+          interpolation: [
+            [/\}/, { token: 'delimiter.bracket', next: '@pop' }],
+            { include: 'root' },
+          ],
+          tripleString: [
+            [/"""/, 'string', '@pop'],
+            [/\$\{/, { token: 'delimiter.bracket', next: '@interpolation' }],
+            [/./, 'string'],
+          ],
+        },
+      });
+    }
+
+    function defineCatppuccinTheme(monaco) {
+      monaco.editor.defineTheme('catppuccin-mocha', {
+        base: 'vs-dark',
+        inherit: true,
+        rules: [
+          { token: 'keyword', foreground: 'cba6f7' },        // mauve
+          { token: 'keyword.control', foreground: 'cba6f7' },
+          { token: 'support.function', foreground: '89b4fa' }, // blue
+          { token: 'constant.language', foreground: 'fab387' }, // peach
+          { token: 'string', foreground: 'a6e3a1' },          // green
+          { token: 'string.escape', foreground: 'f5c2e7' },   // pink
+          { token: 'number', foreground: 'fab387' },           // peach
+          { token: 'number.float', foreground: 'fab387' },
+          { token: 'comment', foreground: '6c7086' },          // overlay1
+          { token: 'operator', foreground: '89dceb' },         // sky
+          { token: 'delimiter.bracket', foreground: 'f5c2e7' },
+          { token: 'annotation', foreground: 'f9e2af' },      // yellow
+          { token: 'identifier', foreground: 'cdd6f4' },      // text
+          { token: '', foreground: 'cdd6f4' },
+        ],
+        colors: {
+          'editor.background': '#1e1e2e',
+          'editor.foreground': '#cdd6f4',
+          'editor.lineHighlightBackground': '#313244',
+          'editor.selectionBackground': '#45475a',
+          'editorCursor.foreground': '#f5e0dc',
+          'editorLineNumber.foreground': '#6c7086',
+          'editorLineNumber.activeForeground': '#cdd6f4',
+          'editorWidget.background': '#181825',
+          'editorWidget.border': '#45475a',
+          'editorSuggestWidget.background': '#181825',
+          'editorSuggestWidget.border': '#45475a',
+          'editorSuggestWidget.selectedBackground': '#313244',
+          'editorHoverWidget.background': '#181825',
+          'editorHoverWidget.border': '#45475a',
+          'input.background': '#313244',
+          'input.border': '#45475a',
+          'input.foreground': '#cdd6f4',
+          'list.hoverBackground': '#313244',
+          'scrollbarSlider.background': '#45475a80',
+          'scrollbarSlider.hoverBackground': '#585b70',
+        },
+      });
+    }
+
+    function wireProviders(monaco) {
+      // --- Diagnostics (on content change, debounced) ---
+      function updateDiagnostics() {
+        if (!editor) return;
+        const model = editor.getModel();
+        if (!model) return;
+        const source = model.getValue();
+        try {
+          const raw = get_diagnostics(source);
+          const diags = JSON.parse(raw);
+          const markers = diags.map(d => ({
+            startLineNumber: d.startLine + 1,
+            startColumn: d.startCol + 1,
+            endLineNumber: d.endLine + 1,
+            endColumn: d.endCol + 1,
+            message: d.message,
+            severity: d.severity,
+          }));
+          monaco.editor.setModelMarkers(model, 'hone', markers);
+        } catch {
+          monaco.editor.setModelMarkers(model, 'hone', []);
+        }
+      }
+
+      // --- Completions ---
+      monaco.languages.registerCompletionItemProvider('hone', {
+        triggerCharacters: ['.', ':'],
+        provideCompletionItems(model, position) {
+          const source = model.getValue();
+          const line = position.lineNumber - 1;
+          const col = position.column - 1;
+          try {
+            const raw = get_completions(source, line, col);
+            const items = JSON.parse(raw);
+            const word = model.getWordUntilPosition(position);
+            const range = {
+              startLineNumber: position.lineNumber,
+              startColumn: word.startColumn,
+              endLineNumber: position.lineNumber,
+              endColumn: word.endColumn,
+            };
+            return {
+              suggestions: items.map(item => ({
+                label: item.label,
+                kind: item.kind,
+                detail: item.detail,
+                insertText: item.insertText,
+                insertTextRules: item.insertTextFormat === 2
+                  ? monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet
+                  : undefined,
+                sortText: item.sortText,
+                range,
+              })),
+            };
+          } catch {
+            return { suggestions: [] };
+          }
+        },
+      });
+
+      // --- Hover ---
+      monaco.languages.registerHoverProvider('hone', {
+        provideHover(model, position) {
+          const source = model.getValue();
+          const line = position.lineNumber - 1;
+          const col = position.column - 1;
+          try {
+            const raw = get_hover(source, line, col);
+            if (!raw) return null;
+            const data = JSON.parse(raw);
+            if (!data.contents) return null;
+            return {
+              contents: [{ value: data.contents }],
+            };
+          } catch {
+            return null;
+          }
+        },
+      });
+
+      // Wire diagnostics to model change events
+      editor.onDidChangeModelContent(() => {
+        saveActiveFile();
+        updateOptionsBarVisibility();
+        clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(doCompile, 300);
+        clearTimeout(diagnosticsTimer);
+        diagnosticsTimer = setTimeout(updateDiagnostics, 300);
+      });
+
+      // Also update diagnostics when model changes (tab switch)
+      editor.onDidChangeModel(() => {
+        clearTimeout(diagnosticsTimer);
+        diagnosticsTimer = setTimeout(updateDiagnostics, 100);
+      });
+
+      // Initial diagnostics
+      updateDiagnostics();
+    }
+
     async function start() {
       wasm = await init();
+      const m = await setupMonaco();
+
+      // Create editor
+      editor = m.editor.create(document.getElementById('editor-container'), {
+        language: 'hone',
+        theme: 'catppuccin-mocha',
+        automaticLayout: true,
+        minimap: { enabled: false },
+        fontSize: 14,
+        lineHeight: 21,
+        fontFamily: '"JetBrains Mono", "Fira Code", "Cascadia Code", "Consolas", monospace',
+        tabSize: 2,
+        insertSpaces: true,
+        scrollBeyondLastLine: false,
+        padding: { top: 8, bottom: 8 },
+        renderLineHighlight: 'line',
+        overviewRulerLanes: 0,
+        hideCursorInOverviewRuler: true,
+        scrollbar: {
+          verticalScrollbarSize: 8,
+          horizontalScrollbarSize: 8,
+        },
+      });
 
       // Load from URL hash
       const hash = window.location.hash.slice(1);
@@ -1590,7 +1895,6 @@ let enable_service = {
           const decoded = atob(hash);
           const data = JSON.parse(decoded);
           if (data.files && data.entry) {
-            // Multi-file share link
             setProjectFiles(data.files, data.entry);
           } else {
             setSingleFile(data.s || '');
@@ -1609,31 +1913,11 @@ let enable_service = {
         setSingleFile(EXAMPLES.basics);
       }
 
+      wireProviders(monaco);
+
       updateOptionsBarVisibility();
       updateTabs();
       doCompile();
-
-      sourceEl.addEventListener('input', () => {
-        saveActiveFile();
-        updateOptionsBarVisibility();
-        clearTimeout(debounceTimer);
-        debounceTimer = setTimeout(doCompile, 300);
-      });
-
-      // Tab key inserts spaces
-      sourceEl.addEventListener('keydown', (e) => {
-        if (e.key === 'Tab') {
-          e.preventDefault();
-          const start = sourceEl.selectionStart;
-          const end = sourceEl.selectionEnd;
-          sourceEl.value = sourceEl.value.substring(0, start) + '  ' + sourceEl.value.substring(end);
-          sourceEl.selectionStart = sourceEl.selectionEnd = start + 2;
-          saveActiveFile();
-          updateOptionsBarVisibility();
-          clearTimeout(debounceTimer);
-          debounceTimer = setTimeout(doCompile, 300);
-        }
-      });
 
       formatSelect.addEventListener('change', () => {
         currentFormat = formatSelect.value;
@@ -1645,7 +1929,6 @@ let enable_service = {
         const name = examplesSelect.value;
         if (!name) return;
 
-        // Clear variant/args inputs
         variantInput.value = '';
         argsInput.value = '';
 
@@ -1656,7 +1939,6 @@ let enable_service = {
           setSingleFile(EXAMPLES[name]);
         }
 
-        // Pre-populate args for CLI Args example
         if (name === 'args') {
           argsInput.value = 'env=prod';
         }
@@ -1668,7 +1950,6 @@ let enable_service = {
 
       prettyPrint.addEventListener('change', doCompile);
 
-      // Recompile when variant/args inputs change
       variantInput.addEventListener('input', () => {
         clearTimeout(debounceTimer);
         debounceTimer = setTimeout(doCompile, 300);
@@ -1699,7 +1980,7 @@ let enable_service = {
         }
         result = compile_project(filesJson, entryPoint, fmt, variantJson, argsJson);
       } else {
-        const source = sourceEl.value;
+        const source = getEditorValue();
         if (!source.trim()) {
           outputEl.textContent = '';
           statusEl.textContent = '';
@@ -1754,9 +2035,9 @@ let enable_service = {
     };
 
     window.formatCode = function() {
-      const result = format_source(sourceEl.value);
+      const result = format_source(getEditorValue());
       if (result.success) {
-        sourceEl.value = result.output;
+        setEditorValue(result.output);
         saveActiveFile();
         doCompile();
       }
@@ -1773,7 +2054,7 @@ let enable_service = {
         };
       } else {
         data = {
-          s: sourceEl.value,
+          s: getEditorValue(),
           f: currentFormat,
         };
       }
