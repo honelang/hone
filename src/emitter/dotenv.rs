@@ -56,24 +56,28 @@ impl DotenvEmitter {
                 pairs.push((prefix.to_string(), s.clone()));
             }
             Value::Array(arr) => {
-                // Arrays of scalars get comma-joined, arrays of objects error
-                let mut items = Vec::new();
-                for item in arr {
-                    match item {
-                        Value::Object(_) | Value::Array(_) => {
-                            return Err(HoneError::io_error(format!(
-                                "cannot flatten nested array/object at key '{}' to .env format",
-                                prefix
-                            )));
-                        }
-                        Value::Null => {
-                            // Skip null in arrays
-                        }
-                        Value::String(s) => items.push(s.clone()),
-                        other => items.push(other.to_string()),
+                // If all non-null elements are scalars, comma-join them.
+                // Otherwise, flatten with __index__ separators (dotnet-style).
+                let has_complex = arr
+                    .iter()
+                    .any(|item| matches!(item, Value::Object(_) | Value::Array(_)));
+
+                if has_complex {
+                    for (i, item) in arr.iter().enumerate() {
+                        let indexed_key = format!("{}__{}", prefix, i);
+                        self.flatten(item, &indexed_key, pairs)?;
                     }
+                } else {
+                    let mut items = Vec::new();
+                    for item in arr {
+                        match item {
+                            Value::Null => {}
+                            Value::String(s) => items.push(s.clone()),
+                            other => items.push(other.to_string()),
+                        }
+                    }
+                    pairs.push((prefix.to_string(), items.join(",")));
                 }
-                pairs.push((prefix.to_string(), items.join(",")));
             }
         }
         Ok(())
@@ -254,13 +258,76 @@ mod tests {
     }
 
     #[test]
-    fn test_array_of_objects_error() {
+    fn test_array_of_objects_indexed() {
         let emitter = DotenvEmitter::new();
         let value = obj(&[(
             "servers",
-            Value::Array(vec![obj(&[("name", Value::String("a".into()))])]),
+            Value::Array(vec![
+                obj(&[
+                    ("name", Value::String("api".into())),
+                    ("port", Value::Int(8080)),
+                ]),
+                obj(&[
+                    ("name", Value::String("worker".into())),
+                    ("port", Value::Int(9090)),
+                ]),
+            ]),
         )]);
-        assert!(emitter.emit(&value).is_err());
+        let result = emitter.emit(&value).unwrap();
+        assert!(result.contains("SERVERS__0_NAME=api\n"));
+        assert!(result.contains("SERVERS__0_PORT=8080\n"));
+        assert!(result.contains("SERVERS__1_NAME=worker\n"));
+        assert!(result.contains("SERVERS__1_PORT=9090\n"));
+    }
+
+    #[test]
+    fn test_nested_array_of_objects_deep() {
+        let emitter = DotenvEmitter::new();
+        let value = obj(&[(
+            "app",
+            obj(&[(
+                "containers",
+                Value::Array(vec![obj(&[(
+                    "env",
+                    Value::Array(vec![obj(&[
+                        ("name", Value::String("PORT".into())),
+                        ("value", Value::String("8080".into())),
+                    ])]),
+                )])]),
+            )]),
+        )]);
+        let result = emitter.emit(&value).unwrap();
+        assert!(result.contains("APP_CONTAINERS__0_ENV__0_NAME=PORT\n"));
+        assert!(result.contains("APP_CONTAINERS__0_ENV__0_VALUE=8080\n"));
+    }
+
+    #[test]
+    fn test_array_of_scalars_still_comma_joined() {
+        let emitter = DotenvEmitter::new();
+        let value = obj(&[(
+            "tags",
+            Value::Array(vec![
+                Value::String("web".into()),
+                Value::String("api".into()),
+            ]),
+        )]);
+        let result = emitter.emit(&value).unwrap();
+        assert!(result.contains("TAGS=web,api\n"));
+    }
+
+    #[test]
+    fn test_mixed_array_with_nested_arrays() {
+        let emitter = DotenvEmitter::new();
+        let value = obj(&[(
+            "matrix",
+            Value::Array(vec![
+                Value::Array(vec![Value::Int(1), Value::Int(2)]),
+                Value::Array(vec![Value::Int(3), Value::Int(4)]),
+            ]),
+        )]);
+        let result = emitter.emit(&value).unwrap();
+        assert!(result.contains("MATRIX__0=1,2\n"));
+        assert!(result.contains("MATRIX__1=3,4\n"));
     }
 
     #[test]
