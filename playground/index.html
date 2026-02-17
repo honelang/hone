@@ -183,6 +183,34 @@
       color: var(--text);
     }
 
+    .file-tabs {
+      display: flex;
+      gap: 2px;
+      padding: 0 12px;
+      background: var(--bg-surface);
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+
+    .file-tab {
+      padding: 4px 12px;
+      font-size: 12px;
+      font-family: "JetBrains Mono", "Fira Code", monospace;
+      color: var(--text-dim);
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      margin-bottom: -1px;
+    }
+
+    .file-tab.active {
+      color: var(--accent);
+      border-bottom-color: var(--accent);
+    }
+
+    .file-tab:hover:not(.active) {
+      color: var(--text);
+    }
+
     textarea {
       flex: 1;
       background: var(--bg);
@@ -233,6 +261,10 @@
         <option value="variant">Variants</option>
         <option value="interpolation">String Interpolation</option>
         <option value="args">CLI Args (expect)</option>
+        <option value="mandelbrot">Mandelbrot Set</option>
+        <option value="microservices">Microservices (multi-file)</option>
+        <option value="ci_pipeline">CI Pipeline (multi-file)</option>
+        <option value="ansible">Ansible Playbook (multi-file)</option>
       </select>
       <select id="format">
         <option value="yaml">YAML</option>
@@ -259,6 +291,7 @@
         <span>Source</span>
         <span class="status" id="status"></span>
       </div>
+      <div class="file-tabs" id="fileTabs" style="display: none;"></div>
       <textarea id="source" spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off"></textarea>
     </div>
     <div class="pane">
@@ -275,7 +308,7 @@
   </div>
 
   <script type="module">
-    import init, { compile, format_source } from './pkg/hone_wasm.js';
+    import init, { compile, compile_project, format_source } from './pkg/hone_wasm.js';
 
     let wasm;
     const sourceEl = document.getElementById('source');
@@ -288,8 +321,14 @@
     const optionsBar = document.getElementById('optionsBar');
     const prettyPrint = document.getElementById('prettyPrint');
     const prettyToggle = document.getElementById('prettyToggle');
+    const fileTabsEl = document.getElementById('fileTabs');
     let currentFormat = 'yaml';
     let debounceTimer;
+
+    // Multi-file state
+    let projectFiles = {};     // { filename: source }
+    let activeFile = null;     // current tab filename
+    let isMultiFile = false;
 
     const EXAMPLES = {
       basics: `# Hone Basics
@@ -309,7 +348,9 @@ let services = for name in ["auth", "users", "billing"] {
     url: "http://\${name}.\${env}.internal"
     port: base_port + 1
   }
-}`,
+}
+
+services: services`,
       kubernetes: `# Kubernetes Deployment
 let app = "my-app"
 let env = "production"
@@ -344,8 +385,8 @@ spec {
         image: "registry.example.com/\${app}:latest"
         ports: [{ containerPort: 8080 }]
         resources {
-          limits { cpu: "500m", memory: "256Mi" }
-          requests { cpu: "100m", memory: "128Mi" }
+          limits: { cpu: "500m", memory: "256Mi" }
+          requests: { cpu: "100m", memory: "128Mi" }
         }
       }]
     }
@@ -422,13 +463,1003 @@ parts: split("a,b,c", ",")
 joined: join(["x", "y", "z"], "-")`,
       args: `# CLI Args with expect
 # Try setting Args to: env=prod port=9090
-expect args.env: string
+expect args.env: string = "dev"
 expect args.port: int = 8080
 expect args.debug: bool = false
 
 host: "api-\${args.env}.example.com"
 port: args.port
-debug: args.debug`
+debug: args.debug`,
+      mandelbrot: `# Mandelbrot Set — ASCII art computed entirely in Hone
+#
+# This is a configuration language. We are rendering a fractal.
+# Each pixel is computed independently using manually-unrolled
+# iterations of z = z\u00B2 + c with complex arithmetic.
+
+let width = 72
+let height = 28
+let x_min = -2.2
+let x_max = 0.8
+let y_min = -1.2
+let y_max = 1.2
+
+let x_step = (x_max - x_min) / width
+let y_step = (y_max - y_min) / height
+
+# Compute the fractal grid.
+# 8 iterations of z = z\u00B2 + c per pixel, ~2000 complex multiplications.
+# For-loops with let-bindings produce objects, so we use "_" as a
+# dummy key and unwrap with ._ \u2014 a small price for complex math.
+
+let grid = for py in range(0, height) {
+  let cy = y_max - py * y_step
+  let pixels = for px in range(0, width) {
+    let cx = x_min + px * x_step
+
+    # z = z\u00B2 + c, unrolled 8 iterations
+    let z1r = cx
+    let z1i = cy
+    let z2r = z1r * z1r - z1i * z1i + cx
+    let z2i = 2.0 * z1r * z1i + cy
+    let z3r = z2r * z2r - z2i * z2i + cx
+    let z3i = 2.0 * z2r * z2i + cy
+    let z4r = z3r * z3r - z3i * z3i + cx
+    let z4i = 2.0 * z3r * z3i + cy
+    let z5r = z4r * z4r - z4i * z4i + cx
+    let z5i = 2.0 * z4r * z4i + cy
+    let z6r = z5r * z5r - z5i * z5i + cx
+    let z6i = 2.0 * z5r * z5i + cy
+    let z7r = z6r * z6r - z6i * z6i + cx
+    let z7i = 2.0 * z6r * z6i + cy
+    let z8r = z7r * z7r - z7i * z7i + cx
+    let z8i = 2.0 * z7r * z7i + cy
+
+    # |z|\u00B2 at each step \u2014 escape radius is 4
+    let m1 = z1r * z1r + z1i * z1i
+    let m2 = z2r * z2r + z2i * z2i
+    let m3 = z3r * z3r + z3i * z3i
+    let m4 = z4r * z4r + z4i * z4i
+    let m5 = z5r * z5r + z5i * z5i
+    let m6 = z6r * z6r + z6i * z6i
+    let m7 = z7r * z7r + z7i * z7i
+    let m8 = z8r * z8r + z8i * z8i
+
+    # Map escape iteration to shading character
+    let ch = m1 > 4.0 ? " " : m2 > 4.0 ? "." : m3 > 4.0 ? ":" : m4 > 4.0 ? "-" : m5 > 4.0 ? "=" : m6 > 4.0 ? "+" : m7 > 4.0 ? "*" : m8 > 4.0 ? "#" : "@"
+    "_": ch
+  }
+  let chars = for p in pixels { p._ }
+  "_": join(chars, "")
+}
+
+art: for row in grid { row._ }`,
+    };
+
+    // Multi-file examples: { files: { name: source }, entry: name }
+    const MULTI_EXAMPLES = {
+      microservices: {
+        entry: './main.hone',
+        files: {
+'./main.hone': `# Microservices Stack \u2014 Kubernetes Manifests
+#
+# A complete multi-service deployment: API server, background worker,
+# Redis cache, and Postgres database.
+
+import "./config.hone" as config
+import "./resources.hone" as res
+import "./schemas.hone" as schemas
+
+# Validate the final output
+use Stack
+
+# Accept an image tag override from the CLI
+expect args.image_tag: string = config.version
+
+# Environment variants
+variant env {
+  default dev {
+    let api_replicas = 1
+    let worker_replicas = 1
+    let log_level = "debug"
+    let redis_storage = "1Gi"
+    let pg_storage = "5Gi"
+    let pg_replicas = 1
+  }
+  staging {
+    let api_replicas = 2
+    let worker_replicas = 2
+    let log_level = "info"
+    let redis_storage = "5Gi"
+    let pg_storage = "20Gi"
+    let pg_replicas = 1
+  }
+  production {
+    let api_replicas = 5
+    let worker_replicas = 3
+    let log_level = "warn"
+    let redis_storage = "10Gi"
+    let pg_storage = "100Gi"
+    let pg_replicas = 3
+  }
+}
+
+# Shared labels applied to every resource
+let common_labels = {
+  "app.kubernetes.io/part-of": config.app_name,
+  "app.kubernetes.io/version": args.image_tag,
+  "app.kubernetes.io/managed-by": "hone",
+}
+
+# Helper: build a container spec
+let make_container = {
+  name: config.app_name,
+  image: "\${config.registry}/\${config.app_name}:\${args.image_tag}",
+  imagePullPolicy: "IfNotPresent",
+}
+
+# \u2500\u2500\u2500 API Server \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+
+---api-deployment
+apiVersion: "apps/v1"
+kind: "Deployment"
+metadata {
+  name: "\${config.app_name}-api"
+  namespace: config.namespace
+  labels {
+    ...common_labels
+    "app.kubernetes.io/component": "api"
+  }
+}
+spec {
+  replicas: api_replicas
+  selector {
+    matchLabels {
+      "app.kubernetes.io/name": "\${config.app_name}-api"
+    }
+  }
+  template {
+    metadata {
+      labels {
+        ...common_labels
+        "app.kubernetes.io/name": "\${config.app_name}-api"
+        "app.kubernetes.io/component": "api"
+      }
+    }
+    spec {
+      containers: [{
+        ...make_container,
+        name: "api",
+        command: ["./server", "--mode", "api"],
+        ports: [{ containerPort: config.api_port, protocol: "TCP" }],
+        env: [
+          { name: "LOG_LEVEL", value: log_level },
+          { name: "PORT", value: to_str(config.api_port) },
+          { name: "REDIS_URL", value: "redis://\${config.app_name}-redis:6379" },
+          { name: "DATABASE_URL", valueFrom: { secretKeyRef: { name: "\${config.app_name}-secrets", key: "database-url" } } },
+        ],
+        resources: res.api,
+        readinessProbe: {
+          httpGet: { path: "/healthz", port: config.api_port },
+          initialDelaySeconds: 5,
+          periodSeconds: 10,
+        },
+        livenessProbe: {
+          httpGet: { path: "/healthz", port: config.api_port },
+          initialDelaySeconds: 15,
+          periodSeconds: 20,
+        },
+      }]
+    }
+  }
+}
+
+---api-service
+apiVersion: "v1"
+kind: "Service"
+metadata {
+  name: "\${config.app_name}-api"
+  namespace: config.namespace
+  labels {
+    ...common_labels
+    "app.kubernetes.io/component": "api"
+  }
+}
+spec {
+  selector {
+    "app.kubernetes.io/name": "\${config.app_name}-api"
+  }
+  ports: [{
+    name: "http",
+    port: 80,
+    targetPort: config.api_port,
+    protocol: "TCP",
+  }]
+}
+
+# \u2500\u2500\u2500 Background Worker \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+
+---worker-deployment
+apiVersion: "apps/v1"
+kind: "Deployment"
+metadata {
+  name: "\${config.app_name}-worker"
+  namespace: config.namespace
+  labels {
+    ...common_labels
+    "app.kubernetes.io/component": "worker"
+  }
+}
+spec {
+  replicas: worker_replicas
+  selector {
+    matchLabels {
+      "app.kubernetes.io/name": "\${config.app_name}-worker"
+    }
+  }
+  template {
+    metadata {
+      labels {
+        ...common_labels
+        "app.kubernetes.io/name": "\${config.app_name}-worker"
+        "app.kubernetes.io/component": "worker"
+      }
+    }
+    spec {
+      containers: [{
+        ...make_container,
+        name: "worker",
+        command: ["./server", "--mode", "worker"],
+        env: [
+          { name: "LOG_LEVEL", value: log_level },
+          { name: "REDIS_URL", value: "redis://\${config.app_name}-redis:6379" },
+          { name: "DATABASE_URL", valueFrom: { secretKeyRef: { name: "\${config.app_name}-secrets", key: "database-url" } } },
+        ],
+        resources: res.worker,
+      }]
+    }
+  }
+}
+
+# \u2500\u2500\u2500 Redis \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+
+---redis
+apiVersion: "apps/v1"
+kind: "StatefulSet"
+metadata {
+  name: "\${config.app_name}-redis"
+  namespace: config.namespace
+  labels {
+    ...common_labels
+    "app.kubernetes.io/component": "cache"
+  }
+}
+spec {
+  serviceName: "\${config.app_name}-redis"
+  replicas: 1
+  selector {
+    matchLabels {
+      "app.kubernetes.io/name": "\${config.app_name}-redis"
+    }
+  }
+  template {
+    metadata {
+      labels {
+        ...common_labels
+        "app.kubernetes.io/name": "\${config.app_name}-redis"
+        "app.kubernetes.io/component": "cache"
+      }
+    }
+    spec {
+      containers: [{
+        name: "redis",
+        image: "redis:7-alpine",
+        ports: [{ containerPort: 6379 }],
+        resources: res.redis,
+        volumeMounts: [{ name: "data", mountPath: "/data" }],
+      }]
+    }
+  }
+  volumeClaimTemplates: [{
+    metadata: { name: "data" },
+    spec: {
+      accessModes: ["ReadWriteOnce"],
+      resources: { requests: { storage: redis_storage } },
+    },
+  }]
+}
+
+---redis-service
+apiVersion: "v1"
+kind: "Service"
+metadata {
+  name: "\${config.app_name}-redis"
+  namespace: config.namespace
+}
+spec {
+  selector {
+    "app.kubernetes.io/name": "\${config.app_name}-redis"
+  }
+  ports: [{ port: 6379, targetPort: 6379 }]
+  clusterIP: "None"
+}
+
+# \u2500\u2500\u2500 Postgres \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+
+---postgres
+apiVersion: "apps/v1"
+kind: "StatefulSet"
+metadata {
+  name: "\${config.app_name}-postgres"
+  namespace: config.namespace
+  labels {
+    ...common_labels
+    "app.kubernetes.io/component": "database"
+  }
+}
+spec {
+  serviceName: "\${config.app_name}-postgres"
+  replicas: pg_replicas
+  selector {
+    matchLabels {
+      "app.kubernetes.io/name": "\${config.app_name}-postgres"
+    }
+  }
+  template {
+    metadata {
+      labels {
+        ...common_labels
+        "app.kubernetes.io/name": "\${config.app_name}-postgres"
+        "app.kubernetes.io/component": "database"
+      }
+    }
+    spec {
+      containers: [{
+        name: "postgres",
+        image: "postgres:16-alpine",
+        ports: [{ containerPort: 5432 }],
+        env: [
+          { name: "POSTGRES_DB", value: config.app_name },
+          { name: "POSTGRES_USER", valueFrom: { secretKeyRef: { name: "\${config.app_name}-secrets", key: "pg-user" } } },
+          { name: "POSTGRES_PASSWORD", valueFrom: { secretKeyRef: { name: "\${config.app_name}-secrets", key: "pg-password" } } },
+        ],
+        resources: res.postgres,
+        volumeMounts: [{ name: "pgdata", mountPath: "/var/lib/postgresql/data" }],
+      }]
+    }
+  }
+  volumeClaimTemplates: [{
+    metadata: { name: "pgdata" },
+    spec: {
+      accessModes: ["ReadWriteOnce"],
+      resources: { requests: { storage: pg_storage } },
+    },
+  }]
+}
+
+---postgres-service
+apiVersion: "v1"
+kind: "Service"
+metadata {
+  name: "\${config.app_name}-postgres"
+  namespace: config.namespace
+}
+spec {
+  selector {
+    "app.kubernetes.io/name": "\${config.app_name}-postgres"
+  }
+  ports: [{ port: 5432, targetPort: 5432 }]
+  clusterIP: "None"
+}`,
+'./config.hone': `# Shared configuration values
+type Port = int(1, 65535)
+type Replicas = int(1, 50)
+type SemVer = string("[0-9]+\\\\.[0-9]+\\\\.[0-9]+")
+type K8sName = string(1, 63)
+type StorageSize = string("[0-9]+[KMGT]i")
+
+let app_name = "catapult"
+let namespace = "catapult"
+let version = "1.2.0"
+let registry = "ghcr.io/catapult-platform"
+let api_port = 8080`,
+'./resources.hone': `# Resource limits and requests per component
+let api = {
+  requests: { cpu: "100m", memory: "256Mi" },
+  limits: { cpu: "1000m", memory: "512Mi" },
+}
+
+let worker = {
+  requests: { cpu: "200m", memory: "512Mi" },
+  limits: { cpu: "2000m", memory: "1Gi" },
+}
+
+let redis = {
+  requests: { cpu: "50m", memory: "64Mi" },
+  limits: { cpu: "200m", memory: "256Mi" },
+}
+
+let postgres = {
+  requests: { cpu: "100m", memory: "256Mi" },
+  limits: { cpu: "1000m", memory: "1Gi" },
+}`,
+'./schemas.hone': `# Schema definitions for the microservices stack output
+import "./config.hone" as config
+
+schema ResourceSpec {
+  cpu: string
+  memory: string
+}
+
+schema Resources {
+  requests: ResourceSpec
+  limits: ResourceSpec
+}
+
+schema Container {
+  name: K8sName
+  image: string
+  ...
+}
+
+schema Metadata {
+  name: K8sName
+  ...
+}
+
+# Top-level: validates the combined multi-document output
+schema Stack {
+  ...
+}`,
+        },
+      },
+      ci_pipeline: {
+        entry: './main.hone',
+        files: {
+'./main.hone': `# CI/CD Pipeline \u2014 GitHub Actions Workflow
+#
+# A comprehensive workflow: lint, test matrix, build, Docker image, deploy.
+
+import "./actions.hone" as actions
+
+# \u2500\u2500 Matrix configuration \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+
+let node_versions = ["18", "20", "22"]
+let os_matrix = ["ubuntu-latest", "macos-latest"]
+
+# Services that the test suite needs
+let test_services = {
+  postgres: {
+    image: "postgres:16-alpine",
+    env: {
+      POSTGRES_USER: "test",
+      POSTGRES_PASSWORD: "test",
+      POSTGRES_DB: "test",
+    },
+    ports: ["5432:5432"],
+    options: "--health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5",
+  },
+  redis: {
+    image: "redis:7-alpine",
+    ports: ["6379:6379"],
+    options: '--health-cmd "redis-cli ping" --health-interval 10s --health-timeout 5s --health-retries 5',
+  },
+}
+
+# Environments reused for test and build steps
+let test_env = {
+  DATABASE_URL: "postgres://test:test@localhost:5432/test",
+  REDIS_URL: "redis://localhost:6379",
+  CI: "true",
+}
+
+# Deploy target (only with --variant deploy=production or deploy=staging)
+variant deploy {
+  default none {
+    let deploy_enabled = false
+    let deploy_env = "none"
+    let deploy_url = ""
+  }
+  staging {
+    let deploy_enabled = true
+    let deploy_env = "staging"
+    let deploy_url = "https://staging.example.com"
+  }
+  production {
+    let deploy_enabled = true
+    let deploy_env = "production"
+    let deploy_url = "https://example.com"
+  }
+}
+
+# \u2500\u2500 Workflow \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+
+name: "CI/CD"
+
+on {
+  push {
+    branches: ["main"]
+  }
+  pull_request {
+    branches: ["main"]
+  }
+}
+
+concurrency {
+  group: '\${{ github.workflow }}-\${{ github.ref }}'
+  "cancel-in-progress": true
+}
+
+jobs {
+  lint {
+    name: "Lint & Format"
+    "runs-on": "ubuntu-latest"
+    steps: [
+      actions.checkout,
+      actions.setup_node_fixed,
+      actions.install_deps,
+      { name: "Lint", run: "npm run lint" },
+      { name: "Format check", run: "npm run format:check" },
+      { name: "Type check", run: "npm run typecheck" },
+    ]
+  }
+
+  test {
+    name: "Test"
+    "runs-on": '\${{ matrix.os }}'
+    needs: ["lint"]
+    strategy {
+      "fail-fast": false
+      matrix {
+        "node-version": node_versions
+        os: os_matrix
+      }
+    }
+    services: test_services
+    steps: [
+      actions.checkout,
+      actions.setup_node,
+      actions.install_deps,
+      {
+        name: "Run tests",
+        run: "npm test -- --coverage",
+        env: test_env,
+      },
+      {
+        name: "Upload coverage",
+        "if": "matrix.node-version == '20' && matrix.os == 'ubuntu-latest'",
+        uses: "codecov/codecov-action@v4",
+        with: { token: '\${{ secrets.CODECOV_TOKEN }}' },
+      },
+    ]
+  }
+
+  build {
+    name: "Build"
+    "runs-on": "ubuntu-latest"
+    needs: ["test"]
+    steps: [
+      actions.checkout,
+      actions.setup_node_fixed,
+      actions.install_deps,
+      { name: "Build", run: "npm run build" },
+      {
+        name: "Upload build artifact",
+        uses: "actions/upload-artifact@v4",
+        with: { name: "dist", path: "dist/", "retention-days": 7 },
+      },
+    ]
+  }
+
+  docker {
+    name: "Docker Image"
+    "runs-on": "ubuntu-latest"
+    needs: ["build"]
+    "if": "github.event_name == 'push' && github.ref == 'refs/heads/main'"
+    permissions: { contents: "read", packages: "write" }
+    steps: [
+      actions.checkout,
+      actions.setup_docker_buildx,
+      actions.docker_login,
+      {
+        name: "Build and push",
+        uses: "docker/build-push-action@v5",
+        with: {
+          context: ".",
+          push: true,
+          tags: join([
+            'ghcr.io/\${{ github.repository }}:latest',
+            'ghcr.io/\${{ github.repository }}:\${{ github.sha }}',
+          ], "\\n"),
+          cache_from: 'type=gha',
+          cache_to: 'type=gha,mode=max',
+        },
+      },
+    ]
+  }
+
+  when deploy_enabled {
+    deploy {
+      name: "Deploy to \${deploy_env}"
+      "runs-on": "ubuntu-latest"
+      needs: ["docker"]
+      "if": "github.event_name == 'push' && github.ref == 'refs/heads/main'"
+      environment {
+        name: deploy_env
+        url: deploy_url
+      }
+      steps: [
+        actions.checkout,
+        {
+          name: "Deploy to \${deploy_env}",
+          uses: "cloudflare/wrangler-action@v3",
+          with: {
+            environment: deploy_env,
+            apiToken: '\${{ secrets.DEPLOY_TOKEN }}',
+          },
+        },
+      ]
+    }
+  }
+}`,
+'./actions.hone': `# Reusable action step patterns
+#
+# Define once, spread everywhere. No more copy-pasting checkout + setup steps.
+
+let checkout = {
+  name: "Checkout",
+  uses: "actions/checkout@v4",
+}
+
+let setup_node = {
+  name: "Set up Node.js",
+  uses: "actions/setup-node@v4",
+  with: {
+    "node-version": '\${{ matrix.node-version }}',
+    cache: "npm",
+  },
+}
+
+let setup_node_fixed = {
+  name: "Set up Node.js",
+  uses: "actions/setup-node@v4",
+  with: {
+    "node-version": "20",
+    cache: "npm",
+  },
+}
+
+let install_deps = {
+  name: "Install dependencies",
+  run: "npm ci",
+}
+
+let docker_login = {
+  name: "Log in to GHCR",
+  uses: "docker/login-action@v3",
+  with: {
+    registry: "ghcr.io",
+    username: '\${{ github.actor }}',
+    password: '\${{ secrets.GITHUB_TOKEN }}',
+  },
+}
+
+let setup_docker_buildx = {
+  name: "Set up Docker Buildx",
+  uses: "docker/setup-buildx-action@v3",
+}`,
+        },
+      },
+      ansible: {
+        entry: './main.hone',
+        files: {
+'./main.hone': `# Ansible Playbook \u2014 Flask App Deployment
+#
+# Demonstrates Hone generating Ansible YAML, including reserved-word keys
+# ("when", "import", "type"), Jinja2 passthrough ({{ }}), yes/no strings,
+# register, loops, handlers, and variant-controlled environments.
+
+import "./vars.hone" as vars
+
+# \u2500\u2500 Environment variants \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+
+variant env {
+  default staging {
+    let gunicorn_workers = 2
+    let nginx_server_name = "staging.yeetops.dev"
+    let ssl_enabled = false
+    let app_branch = "develop"
+  }
+  production {
+    let gunicorn_workers = 8
+    let nginx_server_name = "app.yeetops.dev"
+    let ssl_enabled = true
+    let app_branch = "main"
+  }
+}
+
+# \u2500\u2500 Play \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+
+name: "Deploy \${vars.app_name}"
+hosts: "webservers"
+become: true
+gather_facts: true
+
+vars {
+  app_name: vars.app_name
+  app_dir: vars.app_dir
+  app_port: vars.app_port
+  gunicorn_workers: gunicorn_workers
+  nginx_server_name: nginx_server_name
+}
+
+# \u2500\u2500 Tasks \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+
+tasks: [
+
+  # --- System setup ---
+
+  {
+    name: "Install system packages"
+    ...vars.apt_install
+    tags: ["setup", "packages"]
+  },
+
+  {
+    name: "Create app user"
+    user: {
+      name: vars.app_user
+      shell: "/bin/bash"
+      system: "yes"
+      home: vars.app_dir
+      create_home: "yes"
+    }
+  },
+
+  # --- SSH access ---
+
+  for user in vars.users {
+    name: "Add SSH key for \${user.name}"
+    authorized_key: {
+      user: user.name
+      key: user.key
+      state: "present"
+    }
+    "when": "ansible_os_family == 'Debian'"
+    tags: ["users"]
+  },
+
+  # --- Firewall ---
+
+  for port in vars.firewall_ports {
+    name: "Allow \${port} through firewall"
+    "community.general.ufw": {
+      rule: "allow"
+      port: replace(port, "/tcp", "")
+      proto: "tcp"
+    }
+    tags: ["firewall"]
+  },
+
+  {
+    name: "Enable firewall"
+    "community.general.ufw": { state: "enabled", "policy": "deny" }
+    tags: ["firewall"]
+  },
+
+  # --- Application ---
+
+  {
+    name: "Clone application repo"
+    git: {
+      repo: vars.app_repo
+      dest: vars.app_dir
+      version: app_branch
+      force: "yes"
+    }
+    become_user: vars.app_user
+    notify: ["restart app"]
+    register: "git_result"
+  },
+
+  {
+    name: "Create virtualenv and install deps"
+    pip: {
+      requirements: "\${vars.app_dir}/requirements.txt"
+      virtualenv: vars.venv_dir
+      virtualenv_command: "python3 -m venv"
+    }
+    become_user: vars.app_user
+    "when": "git_result.changed"
+  },
+
+  {
+    name: "Create log directory"
+    file: {
+      path: vars.log_dir
+      state: "directory"
+      owner: vars.app_user
+      group: vars.app_user
+      mode: "0755"
+    }
+  },
+
+  # --- Config files (Jinja2 passthrough) ---
+
+  {
+    name: "Deploy app config"
+    template: {
+      src: "templates/config.ini.j2"
+      dest: "\${vars.config_dir}/config.ini"
+      owner: vars.app_user
+      mode: "0600"
+    }
+    notify: ["restart app"]
+    tags: ["config"]
+  },
+
+  {
+    name: "Deploy supervisor config"
+    template: {
+      src: "templates/supervisor.conf.j2"
+      dest: "/etc/supervisor/conf.d/\${vars.app_name}.conf"
+    }
+    notify: ["restart app"]
+    vars: {
+      workers: "{{ gunicorn_workers }}"
+      bind: "127.0.0.1:{{ app_port }}"
+    }
+  },
+
+  {
+    name: "Deploy nginx site config"
+    template: {
+      src: "templates/nginx.conf.j2"
+      dest: "/etc/nginx/sites-available/\${vars.app_name}"
+      owner: "root"
+      mode: "0644"
+    }
+    notify: ["reload nginx"]
+    vars: {
+      server_name: "{{ nginx_server_name }}"
+      upstream_port: "{{ app_port }}"
+    }
+  },
+
+  {
+    name: "Enable nginx site"
+    file: {
+      src: "/etc/nginx/sites-available/\${vars.app_name}"
+      dest: "/etc/nginx/sites-enabled/\${vars.app_name}"
+      state: "link"
+    }
+    notify: ["reload nginx"]
+  },
+
+  # --- SSL (production only) ---
+
+  {
+    name: "Install certbot"
+    apt: { name: ["certbot", "python3-certbot-nginx"], state: "present" }
+    "when": to_str(ssl_enabled)
+    tags: ["ssl"]
+  },
+
+  {
+    name: "Obtain SSL certificate"
+    command: "certbot --nginx -d {{ nginx_server_name }} --non-interactive --agree-tos -m ops@yeetops.dev"
+    args: { creates: "/etc/letsencrypt/live/{{ nginx_server_name }}/fullchain.pem" }
+    "when": to_str(ssl_enabled)
+    tags: ["ssl"]
+  },
+
+  # --- Services ---
+
+  {
+    name: "Start supervisor"
+    ...vars.enable_service
+    systemd {
+      name: "supervisor"
+    }
+  },
+
+  {
+    name: "Start nginx"
+    ...vars.enable_service
+    systemd {
+      name: "nginx"
+    }
+  },
+
+  # --- Smoke test ---
+
+  {
+    name: "Verify app is responding"
+    uri: {
+      url: "http://127.0.0.1:\${to_str(vars.app_port)}/health"
+      status_code: [200]
+      timeout: 30
+    }
+    retries: 5
+    delay: 3
+    register: "health_check"
+    "when": "git_result.changed"
+    tags: ["verify"]
+  },
+
+  {
+    name: "Show deploy result"
+    debug: {
+      msg: "Deployed \${vars.app_name} ({{ ansible_hostname }}), healthy: {{ health_check.status | default('skipped') }}"
+    }
+    tags: ["verify"]
+  },
+]
+
+# \u2500\u2500 Handlers \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+
+handlers: [
+  {
+    name: "restart app"
+    supervisorctl: {
+      name: vars.app_name
+      state: "restarted"
+    }
+  },
+  {
+    name: "reload nginx"
+    systemd: {
+      name: "nginx"
+      state: "reloaded"
+    }
+  },
+]`,
+'./vars.hone': `# Shared variables and reusable task patterns for the playbook
+
+# \u2500\u2500 App settings \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+
+let app_name = "helloflask"
+let app_user = "deploy"
+let app_port = 5000
+let app_repo = "https://github.com/yeetops/helloflask.git"
+let app_dir = "/opt/\${app_name}"
+let venv_dir = "\${app_dir}/venv"
+let config_dir = "/etc/\${app_name}"
+let log_dir = "/var/log/\${app_name}"
+
+let system_packages = [
+  "nginx", "python3", "python3-venv", "python3-pip",
+  "git", "supervisor", "ufw",
+]
+
+let firewall_ports = ["22/tcp", "80/tcp", "443/tcp"]
+
+# \u2500\u2500 Users \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+
+let users = [
+  { name: "alice", groups: "admin,docker", key: "ssh-ed25519 AAAA... alice@ops" },
+  { name: "bob", groups: "docker", key: "ssh-ed25519 AAAA... bob@ops" },
+]
+
+# \u2500\u2500 Reusable task patterns \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+
+let apt_install = {
+  apt: {
+    name: system_packages,
+    state: "present",
+    update_cache: "yes",
+    cache_valid_time: 3600,
+  }
+}
+
+let enable_service = {
+  systemd: {
+    enabled: "yes",
+    state: "started",
+    daemon_reload: "yes",
+  }
+}`,
+        },
+      },
     };
 
     // Parse "key=value key2=value2" into a JSON object string
@@ -447,10 +1478,77 @@ debug: args.debug`
 
     // Show options bar if source contains variant or expect
     function updateOptionsBarVisibility() {
-      const source = sourceEl.value;
-      const hasVariant = /\bvariant\b/.test(source);
-      const hasExpect = /\bexpect\b/.test(source);
+      // Check all files if multi-file, or just the source
+      let allSource;
+      if (isMultiFile) {
+        allSource = Object.values(projectFiles).join('\n');
+      } else {
+        allSource = sourceEl.value;
+      }
+      const hasVariant = /\bvariant\b/.test(allSource);
+      const hasExpect = /\bexpect\b/.test(allSource);
       optionsBar.style.display = (hasVariant || hasExpect) ? 'flex' : 'none';
+    }
+
+    // --- Tab management ---
+    // Track which file is the entry point for multi-file projects
+    let entryPointFile = null;
+
+    function setProjectFiles(files, entry) {
+      projectFiles = { ...files };
+      activeFile = entry;
+      entryPointFile = entry;
+      isMultiFile = Object.keys(files).length > 1;
+      renderFileTabs();
+      sourceEl.value = projectFiles[activeFile] || '';
+    }
+
+    function getEntryPoint() {
+      if (!isMultiFile) return null;
+      return entryPointFile || Object.keys(projectFiles)[0];
+    }
+
+    function setSingleFile(source) {
+      projectFiles = {};
+      activeFile = null;
+      isMultiFile = false;
+      renderFileTabs();
+      sourceEl.value = source;
+    }
+
+    function renderFileTabs() {
+      if (!isMultiFile) {
+        fileTabsEl.style.display = 'none';
+        fileTabsEl.innerHTML = '';
+        return;
+      }
+      fileTabsEl.style.display = 'flex';
+      fileTabsEl.innerHTML = '';
+      const filenames = Object.keys(projectFiles);
+      for (const name of filenames) {
+        const tab = document.createElement('div');
+        tab.className = 'file-tab' + (name === activeFile ? ' active' : '');
+        // Show short name: strip leading ./
+        tab.textContent = name.replace(/^\.\//, '');
+        tab.onclick = () => switchToFile(name);
+        fileTabsEl.appendChild(tab);
+      }
+    }
+
+    function switchToFile(name) {
+      if (activeFile && isMultiFile) {
+        // Save current content
+        projectFiles[activeFile] = sourceEl.value;
+      }
+      activeFile = name;
+      sourceEl.value = projectFiles[name] || '';
+      renderFileTabs();
+    }
+
+    function saveActiveFile() {
+      if (isMultiFile && activeFile) {
+        projectFiles[activeFile] = sourceEl.value;
+      }
     }
 
     async function start() {
@@ -462,7 +1560,12 @@ debug: args.debug`
         try {
           const decoded = atob(hash);
           const data = JSON.parse(decoded);
-          sourceEl.value = data.s || '';
+          if (data.files && data.entry) {
+            // Multi-file share link
+            setProjectFiles(data.files, data.entry);
+          } else {
+            setSingleFile(data.s || '');
+          }
           if (data.f) {
             currentFormat = data.f;
             formatSelect.value = currentFormat;
@@ -471,10 +1574,10 @@ debug: args.debug`
           if (data.v) variantInput.value = data.v;
           if (data.a) argsInput.value = data.a;
         } catch {
-          sourceEl.value = EXAMPLES.basics;
+          setSingleFile(EXAMPLES.basics);
         }
       } else {
-        sourceEl.value = EXAMPLES.basics;
+        setSingleFile(EXAMPLES.basics);
       }
 
       updateOptionsBarVisibility();
@@ -482,6 +1585,7 @@ debug: args.debug`
       doCompile();
 
       sourceEl.addEventListener('input', () => {
+        saveActiveFile();
         updateOptionsBarVisibility();
         clearTimeout(debounceTimer);
         debounceTimer = setTimeout(doCompile, 300);
@@ -495,6 +1599,7 @@ debug: args.debug`
           const end = sourceEl.selectionEnd;
           sourceEl.value = sourceEl.value.substring(0, start) + '  ' + sourceEl.value.substring(end);
           sourceEl.selectionStart = sourceEl.selectionEnd = start + 2;
+          saveActiveFile();
           updateOptionsBarVisibility();
           clearTimeout(debounceTimer);
           debounceTimer = setTimeout(doCompile, 300);
@@ -508,12 +1613,27 @@ debug: args.debug`
       });
 
       examplesSelect.addEventListener('change', () => {
-        const example = EXAMPLES[examplesSelect.value];
-        if (example) {
-          sourceEl.value = example;
-          updateOptionsBarVisibility();
-          doCompile();
+        const name = examplesSelect.value;
+        if (!name) return;
+
+        // Clear variant/args inputs
+        variantInput.value = '';
+        argsInput.value = '';
+
+        if (MULTI_EXAMPLES[name]) {
+          const ex = MULTI_EXAMPLES[name];
+          setProjectFiles(ex.files, ex.entry);
+        } else if (EXAMPLES[name]) {
+          setSingleFile(EXAMPLES[name]);
         }
+
+        // Pre-populate args for CLI Args example
+        if (name === 'args') {
+          argsInput.value = 'env=prod';
+        }
+
+        updateOptionsBarVisibility();
+        doCompile();
         examplesSelect.value = '';
       });
 
@@ -531,18 +1651,34 @@ debug: args.debug`
     }
 
     function doCompile() {
-      const source = sourceEl.value;
-      if (!source.trim()) {
-        outputEl.textContent = '';
-        statusEl.textContent = '';
-        statusEl.className = 'status';
-        return;
-      }
+      saveActiveFile();
 
       const variantJson = parseKeyValues(variantInput.value);
       const argsJson = parseKeyValues(argsInput.value);
       const fmt = (currentFormat === 'json' && prettyPrint.checked) ? 'json-pretty' : currentFormat;
-      const result = compile(source, fmt, variantJson, argsJson);
+
+      let result;
+      if (isMultiFile) {
+        const filesJson = JSON.stringify(projectFiles);
+        const entryPoint = getEntryPoint();
+        if (!entryPoint) {
+          outputEl.textContent = 'No entry point defined';
+          outputEl.className = 'error';
+          statusEl.textContent = 'Error';
+          statusEl.className = 'status err';
+          return;
+        }
+        result = compile_project(filesJson, entryPoint, fmt, variantJson, argsJson);
+      } else {
+        const source = sourceEl.value;
+        if (!source.trim()) {
+          outputEl.textContent = '';
+          statusEl.textContent = '';
+          statusEl.className = 'status';
+          return;
+        }
+        result = compile(source, fmt, variantJson, argsJson);
+      }
 
       if (result.success) {
         outputEl.textContent = result.output;
@@ -575,15 +1711,26 @@ debug: args.debug`
       const result = format_source(sourceEl.value);
       if (result.success) {
         sourceEl.value = result.output;
+        saveActiveFile();
         doCompile();
       }
     };
 
     window.share = function() {
-      const data = {
-        s: sourceEl.value,
-        f: currentFormat,
-      };
+      let data;
+      if (isMultiFile) {
+        saveActiveFile();
+        data = {
+          files: projectFiles,
+          entry: entryPointFile,
+          f: currentFormat,
+        };
+      } else {
+        data = {
+          s: sourceEl.value,
+          f: currentFormat,
+        };
+      }
       if (variantInput.value.trim()) data.v = variantInput.value;
       if (argsInput.value.trim()) data.a = argsInput.value;
       const encoded = btoa(JSON.stringify(data));

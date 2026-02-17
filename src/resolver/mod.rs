@@ -427,6 +427,11 @@ impl VirtualResolver {
         }
     }
 
+    /// Get a previously resolved file from cache
+    pub fn get(&self, path: &Path) -> Option<&ResolvedFile> {
+        self.cache.get(path)
+    }
+
     /// Add a virtual file
     pub fn add_file(&mut self, path: impl Into<PathBuf>, content: impl Into<String>) {
         self.files.insert(path.into(), content.into());
