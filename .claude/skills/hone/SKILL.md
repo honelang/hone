@@ -96,6 +96,13 @@ when env == "production" {
 # For-as-expression → array
 let doubled = for x in [1, 2, 3] { x * 2 }   # [2, 4, 6]
 
+# Block body: let bindings + trailing expression → array
+let squares = for i in range(0, 5) {
+  let sq = i * i
+  sq
+}
+# [0, 1, 4, 9, 16]
+
 # For-as-expression with string keys → array of objects
 let list = for env in ["dev", "prod"] {
   "${env}": "https://${env}.example.com"
@@ -293,17 +300,27 @@ obj.missing_key  # → null (silent)
 x ?? "fallback"  # → "fallback"
 ```
 
-### 5. For loop body vs expression
+### 5. For loop: three body forms
 ```hone
-# EXPRESSION — produces array of objects
-let x = for i in items { "k": i }
-# → [{k: item1}, {k: item2}, ...]
+# EXPRESSION — single expression, produces array
+let doubled = for x in [1, 2, 3] { x * 2 }  # [2, 4, 6]
 
-# BODY — merges into flat object
+# BLOCK — let bindings + trailing expression, produces array
+let computed = for x in [1, 2, 3] {
+  let sq = x * x
+  sq + 1
+}
+# [2, 5, 10]
+
+# OBJECT — key-value pairs, produces array of objects
+let objs = for i in items { "k": i }
+# [{k: item1}, {k: item2}, ...]
+
+# IN BODY — for inside a block merges into flat object
 result {
   for i in items { "k_${i}": i }
 }
-# → {k_item1: item1, k_item2: item2, ...}
+# {k_item1: item1, k_item2: item2, ...}
 ```
 
 ### 6. Boolean strings for target systems

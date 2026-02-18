@@ -845,6 +845,17 @@ impl Formatter {
                     self.output.push('}');
                 }
             }
+            ForBody::Block(items, expr) => {
+                self.output.push_str("{\n");
+                self.indent += 1;
+                self.format_body_items(items);
+                self.write_indent();
+                self.format_expr(expr);
+                self.output.push('\n');
+                self.indent -= 1;
+                self.write_indent();
+                self.output.push('}');
+            }
         }
     }
 

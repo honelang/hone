@@ -837,6 +837,13 @@ impl Evaluator {
                     }
                     result.push(Value::Object(obj));
                 }
+                ForBody::Block(items, expr) => {
+                    let mut obj = IndexMap::new();
+                    for item in items {
+                        self.eval_body_item(item, &mut obj)?;
+                    }
+                    result.push(self.eval_expr(expr)?);
+                }
             }
 
             self.scopes.pop();

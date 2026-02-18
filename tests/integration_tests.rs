@@ -3356,9 +3356,9 @@ let height = 10
 let x_step = 3.0 / width
 let y_step = 2.4 / height
 
-let grid = for py in range(0, height) {
+art: for py in range(0, height) {
   let cy = 1.2 - py * y_step
-  let pixels = for px in range(0, width) {
+  let row = for px in range(0, width) {
     let cx = -2.2 + px * x_step
     let z1r = cx
     let z1i = cy
@@ -3372,14 +3372,10 @@ let grid = for py in range(0, height) {
     let m2 = z2r * z2r + z2i * z2i
     let m3 = z3r * z3r + z3i * z3i
     let m4 = z4r * z4r + z4i * z4i
-    let ch = m1 > 4.0 ? " " : m2 > 4.0 ? "." : m3 > 4.0 ? ":" : m4 > 4.0 ? "#" : "@"
-    "_": ch
+    m1 > 4.0 ? " " : m2 > 4.0 ? "." : m3 > 4.0 ? ":" : m4 > 4.0 ? "#" : "@"
   }
-  let chars = for p in pixels { p._ }
-  "_": join(chars, "")
+  join(row, "")
 }
-
-art: for row in grid { row._ }
 "##;
     let json = compile_to_json(source).unwrap();
     let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
@@ -3413,7 +3409,7 @@ art: for row in grid { row._ }
 
 #[test]
 fn test_for_loop_dummy_key_unwrap_pattern() {
-    // The "_" dummy key pattern used by mandelbrot for computed for-loops
+    // The old "_" dummy key pattern still works for backwards compatibility
     let source = r#"
 let data = for i in range(0, 5) {
   let squared = i * i
@@ -3425,4 +3421,156 @@ result: for item in data { item._ }
     let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
     let result = parsed["result"].as_array().unwrap();
     assert_eq!(result, &[0, 1, 4, 9, 16]);
+}
+
+// =============================================================================
+// Block body for loops (trailing expression after let bindings)
+// =============================================================================
+
+#[test]
+fn test_for_block_body_basic() {
+    // Trailing expression after let bindings produces an array
+    let source = r#"
+result: for i in range(0, 5) {
+  let squared = i * i
+  squared
+}
+"#;
+    let json = compile_to_json(source).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+    let result = parsed["result"].as_array().unwrap();
+    assert_eq!(result, &[0, 1, 4, 9, 16]);
+}
+
+#[test]
+fn test_for_block_body_multiple_lets() {
+    // Multiple let bindings before trailing expression
+    let source = r#"
+result: for i in range(0, 4) {
+  let a = i * 2
+  let b = a + 1
+  let c = b * b
+  c
+}
+"#;
+    let json = compile_to_json(source).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+    let result = parsed["result"].as_array().unwrap();
+    // i=0: a=0,b=1,c=1  i=1: a=2,b=3,c=9  i=2: a=4,b=5,c=25  i=3: a=6,b=7,c=49
+    assert_eq!(result, &[1, 9, 25, 49]);
+}
+
+#[test]
+fn test_for_block_body_complex_trailing_expr() {
+    // Trailing expression can be any expression, not just a variable
+    let source = r#"
+result: for i in range(0, 3) {
+  let x = i + 1
+  x * x + x
+}
+"#;
+    let json = compile_to_json(source).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+    let result = parsed["result"].as_array().unwrap();
+    // i=0: x=1, 1+1=2  i=1: x=2, 4+2=6  i=2: x=3, 9+3=12
+    assert_eq!(result, &[2, 6, 12]);
+}
+
+#[test]
+fn test_for_block_body_string_result() {
+    // Block body producing strings
+    let source = r#"
+result: for name in ["alice", "bob", "carol"] {
+  let greeting = "hello"
+  "${greeting}, ${name}!"
+}
+"#;
+    let json = compile_to_json(source).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+    let result = parsed["result"].as_array().unwrap();
+    assert_eq!(result[0], "hello, alice!");
+    assert_eq!(result[1], "hello, bob!");
+    assert_eq!(result[2], "hello, carol!");
+}
+
+#[test]
+fn test_for_block_body_nested() {
+    // Nested for loops both using block bodies
+    let source = r#"
+result: for y in range(0, 3) {
+  let row = for x in range(0, 3) {
+    let val = y * 3 + x
+    val
+  }
+  join(for v in row { to_str(v) }, ",")
+}
+"#;
+    let json = compile_to_json(source).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+    let result = parsed["result"].as_array().unwrap();
+    assert_eq!(result[0], "0,1,2");
+    assert_eq!(result[1], "3,4,5");
+    assert_eq!(result[2], "6,7,8");
+}
+
+#[test]
+fn test_for_block_body_with_ternary() {
+    // Trailing expression is a ternary (common pattern)
+    let source = r#"
+result: for i in range(0, 5) {
+  let threshold = 2
+  i > threshold ? "big" : "small"
+}
+"#;
+    let json = compile_to_json(source).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+    let result = parsed["result"].as_array().unwrap();
+    assert_eq!(result, &["small", "small", "small", "big", "big"]);
+}
+
+#[test]
+fn test_for_block_body_with_function_call() {
+    // Trailing expression is a function call
+    let source = r#"
+result: for word in ["hello", "WORLD", "Foo"] {
+  let lowered = lower(word)
+  upper(lowered)
+}
+"#;
+    let json = compile_to_json(source).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+    let result = parsed["result"].as_array().unwrap();
+    assert_eq!(result, &["HELLO", "WORLD", "FOO"]);
+}
+
+#[test]
+fn test_for_block_body_let_in_expression_context() {
+    // Block body for loop used in a let binding
+    let source = r#"
+let squares = for i in range(1, 6) {
+  let sq = i * i
+  sq
+}
+result: squares
+"#;
+    let json = compile_to_json(source).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+    let result = parsed["result"].as_array().unwrap();
+    assert_eq!(result, &[1, 4, 9, 16, 25]);
+}
+
+#[test]
+fn test_for_block_body_destructuring() {
+    // Block body with pair destructuring
+    let source = r#"
+let data = { a: 1, b: 2, c: 3 }
+result: for (key, val) in data {
+  let doubled = val * 2
+  "${key}=${doubled}"
+}
+"#;
+    let json = compile_to_json(source).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+    let result = parsed["result"].as_array().unwrap();
+    assert_eq!(result, &["a=2", "b=4", "c=6"]);
 }

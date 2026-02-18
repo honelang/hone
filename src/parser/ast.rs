@@ -321,6 +321,9 @@ pub enum ForBody {
     Object(Vec<BodyItem>),
     /// Expression body (for arrays): `{ expr }` or just `expr`
     Expr(Expr),
+    /// Block body: let bindings followed by a trailing expression
+    /// `{ let x = ...\n let y = ...\n expr }`
+    Block(Vec<BodyItem>, Expr),
 }
 
 /// Assert statement: `assert condition [: message]`

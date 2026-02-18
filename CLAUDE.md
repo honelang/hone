@@ -112,6 +112,13 @@ when env == "production" {
 # Array comprehension
 let doubled = for x in [1, 2, 3] { x * 2 }  # [2, 4, 6]
 
+# Block body: let bindings + trailing expression → array
+let squares = for i in range(0, 5) {
+  let sq = i * i
+  sq
+}
+# [0, 1, 4, 9, 16]
+
 # Object generation
 let ports = for name in ["http", "https"] {
   "${name}Port": name == "http" ? 80 : 443

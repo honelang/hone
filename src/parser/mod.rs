@@ -750,14 +750,25 @@ impl Parser {
         self.expect(&TokenKind::LeftBrace)?;
         self.skip_newlines();
 
-        // Determine if this is an object body or expression body
+        // Determine if this is an object body, block body, or expression body
         let body = if self.is_body_item_start() {
             let mut items = Vec::new();
+            let mut trailing_expr = None;
             while !self.check(&TokenKind::RightBrace) {
-                items.push(self.parse_body_item()?);
-                self.skip_newlines();
+                if self.is_body_item_start() {
+                    items.push(self.parse_body_item()?);
+                    self.skip_newlines();
+                } else {
+                    // Trailing expression after body items (block body)
+                    trailing_expr = Some(self.parse_expr()?);
+                    self.skip_newlines();
+                    break;
+                }
             }
-            ForBody::Object(items)
+            match trailing_expr {
+                Some(expr) => ForBody::Block(items, expr),
+                None => ForBody::Object(items),
+            }
         } else {
             // Expression body
             let expr = self.parse_expr()?;
@@ -797,12 +808,46 @@ impl Parser {
             }
             TokenKind::StringStart(_) => {
                 // Interpolated string key: `"${expr}": value`
-                // Can't easily look ahead past interpolation, but an interpolated
-                // string at the start of a body item is always a key
-                true
+                // Scan past the interpolated string to check if followed by `:`, `+:`, `!:`, or `{`
+                if let Some(end_pos) = self.find_matching_string_end(self.pos) {
+                    if end_pos + 1 < self.tokens.len() {
+                        matches!(
+                            self.tokens[end_pos + 1].kind,
+                            TokenKind::Colon
+                                | TokenKind::ColonPlus
+                                | TokenKind::ColonBang
+                                | TokenKind::LeftBrace
+                        )
+                    } else {
+                        false
+                    }
+                } else {
+                    true // fallback: assume it's a key (old behavior)
+                }
             }
             _ => false,
         }
+    }
+
+    /// Find the position of the StringEnd token matching a StringStart at `start_pos`.
+    /// Handles nested interpolated strings.
+    fn find_matching_string_end(&self, start_pos: usize) -> Option<usize> {
+        let mut depth = 0usize;
+        let mut pos = start_pos;
+        while pos < self.tokens.len() {
+            match &self.tokens[pos].kind {
+                TokenKind::StringStart(_) => depth += 1,
+                TokenKind::StringEnd(_) => {
+                    depth -= 1;
+                    if depth == 0 {
+                        return Some(pos);
+                    }
+                }
+                _ => {}
+            }
+            pos += 1;
+        }
+        None
     }
 
     /// Parse assert statement: `assert condition [: message]`
