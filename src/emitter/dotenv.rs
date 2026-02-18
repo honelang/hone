@@ -1,6 +1,7 @@
 //! .env emitter for Hone values
 //!
-//! Flattens nested objects into KEY=VALUE pairs, using underscore separation
+//! Flattens nested objects into KEY=VALUE pairs using double-underscore (`__`)
+//! separation for hierarchy levels (matching .NET configuration convention)
 //! and uppercase keys. Suitable for .env files and environment variable configs.
 
 use super::Emitter;
@@ -28,7 +29,7 @@ impl DotenvEmitter {
                     let full_key = if prefix.is_empty() {
                         Self::to_env_key(key)
                     } else {
-                        format!("{}_{}", prefix, Self::to_env_key(key))
+                        format!("{}__{}", prefix, Self::to_env_key(key))
                     };
                     self.flatten(val, &full_key, pairs)?;
                 }
@@ -188,8 +189,8 @@ mod tests {
             ]),
         )]);
         let result = emitter.emit(&value).unwrap();
-        assert!(result.contains("SERVER_HOST=localhost\n"));
-        assert!(result.contains("SERVER_PORT=8080\n"));
+        assert!(result.contains("SERVER__HOST=localhost\n"));
+        assert!(result.contains("SERVER__PORT=8080\n"));
     }
 
     #[test]
@@ -203,7 +204,7 @@ mod tests {
             )]),
         )]);
         let result = emitter.emit(&value).unwrap();
-        assert!(result.contains("DATABASE_CONNECTION_HOST=db.example.com\n"));
+        assert!(result.contains("DATABASE__CONNECTION__HOST=db.example.com\n"));
     }
 
     #[test]
@@ -274,10 +275,10 @@ mod tests {
             ]),
         )]);
         let result = emitter.emit(&value).unwrap();
-        assert!(result.contains("SERVERS__0_NAME=api\n"));
-        assert!(result.contains("SERVERS__0_PORT=8080\n"));
-        assert!(result.contains("SERVERS__1_NAME=worker\n"));
-        assert!(result.contains("SERVERS__1_PORT=9090\n"));
+        assert!(result.contains("SERVERS__0__NAME=api\n"));
+        assert!(result.contains("SERVERS__0__PORT=8080\n"));
+        assert!(result.contains("SERVERS__1__NAME=worker\n"));
+        assert!(result.contains("SERVERS__1__PORT=9090\n"));
     }
 
     #[test]
@@ -297,8 +298,8 @@ mod tests {
             )]),
         )]);
         let result = emitter.emit(&value).unwrap();
-        assert!(result.contains("APP_CONTAINERS__0_ENV__0_NAME=PORT\n"));
-        assert!(result.contains("APP_CONTAINERS__0_ENV__0_VALUE=8080\n"));
+        assert!(result.contains("APP__CONTAINERS__0__ENV__0__NAME=PORT\n"));
+        assert!(result.contains("APP__CONTAINERS__0__ENV__0__VALUE=8080\n"));
     }
 
     #[test]
@@ -352,6 +353,6 @@ mod tests {
             obj(&[("api-key", Value::String("abc".into()))]),
         )]);
         let result = emitter.emit(&value).unwrap();
-        assert!(result.contains("MY_SERVICE_API_KEY=abc\n"));
+        assert!(result.contains("MY_SERVICE__API_KEY=abc\n"));
     }
 }
