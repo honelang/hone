@@ -139,15 +139,18 @@ impl HoneLanguageServer {
                 if !use_statements.is_empty() {
                     let mut checker = crate::typechecker::TypeChecker::new(content.to_string());
                     let unchecked = evaluator.unchecked_paths().clone();
+                    let location_map = evaluator.location_map().clone();
                     checker.set_unchecked_paths(unchecked);
                     if checker.collect_schemas(&ast).is_ok() {
                         for use_stmt in &use_statements {
                             if checker.get_schema(&use_stmt.schema_name).is_some() {
-                                if let Err(e) = checker.check_type(
+                                let errors = checker.check_type_all(
                                     &value,
                                     &crate::typechecker::Type::Schema(use_stmt.schema_name.clone()),
                                     &use_stmt.location,
-                                ) {
+                                    &location_map,
+                                );
+                                for e in errors {
                                     diagnostics.push(error_to_diagnostic(&e, content));
                                 }
                             }

@@ -8,7 +8,7 @@ mod types;
 pub use types::{FloatConstraints, IntConstraints, StringConstraints, Type, TypeEnv, TypeRegistry};
 
 use crate::errors::{HoneError, HoneResult};
-use crate::evaluator::Value;
+use crate::evaluator::{LocationMap, Value};
 use crate::lexer::token::SourceLocation;
 use crate::parser::ast::{
     Expr, File, PreambleItem, SchemaDefinition, SchemaField, TypeAliasDefinition, TypeConstraint,
@@ -743,6 +743,408 @@ impl TypeChecker {
     /// Get a schema by name
     pub fn get_schema(&self, name: &str) -> Option<&Schema> {
         self.schemas.get(name)
+    }
+
+    /// Check a value against a type, collecting all errors instead of failing fast.
+    /// Uses `location_map` to point errors at the value definition site.
+    /// Falls back to `fallback_location` (typically the `use` statement) when no map entry exists.
+    pub fn check_type_all(
+        &self,
+        value: &Value,
+        expected: &Type,
+        fallback_location: &SourceLocation,
+        location_map: &LocationMap,
+    ) -> Vec<HoneError> {
+        let mut errors = Vec::new();
+        self.check_type_collecting(
+            value,
+            expected,
+            fallback_location,
+            "",
+            location_map,
+            &mut errors,
+        );
+        errors
+    }
+
+    /// Internal: mirrors `check_type_at_path` but collects all errors into `errors` vec.
+    fn check_type_collecting(
+        &self,
+        value: &Value,
+        expected: &Type,
+        fallback_location: &SourceLocation,
+        path: &str,
+        location_map: &LocationMap,
+        errors: &mut Vec<HoneError>,
+    ) {
+        // Skip check if this path is marked @unchecked
+        if !path.is_empty() && self.unchecked_paths.contains(path) {
+            return;
+        }
+
+        // Resolve location: prefer location_map, fall back to use-statement location
+        let location = location_map.get(path).unwrap_or(fallback_location);
+
+        match (value, expected) {
+            // Any matches anything
+            (_, Type::Any) => {}
+
+            // Null type
+            (Value::Null, Type::Null) => {}
+
+            // Primitives
+            (Value::Bool(_), Type::Bool) => {}
+            (Value::Int(_), Type::Int) => {}
+            (Value::Float(_), Type::Float) => {}
+            (Value::String(_), Type::String) => {}
+
+            // Constrained integer type
+            (Value::Int(n), Type::IntConstrained(constraints)) => {
+                if let Some(min) = constraints.min {
+                    if *n < min {
+                        errors.push(HoneError::ValueOutOfRange {
+                            src: self.source.clone(),
+                            span: (location.offset, location.length).into(),
+                            expected: format!("{}", expected),
+                            value: format!("{}", n),
+                            help: format!("value {} is less than minimum {}", n, min),
+                        });
+                        return;
+                    }
+                }
+                if let Some(max) = constraints.max {
+                    if *n > max {
+                        errors.push(HoneError::ValueOutOfRange {
+                            src: self.source.clone(),
+                            span: (location.offset, location.length).into(),
+                            expected: format!("{}", expected),
+                            value: format!("{}", n),
+                            help: format!("value {} is greater than maximum {}", n, max),
+                        });
+                    }
+                }
+            }
+
+            // Constrained float type
+            (Value::Float(n), Type::FloatConstrained(constraints)) => {
+                if let Some(min) = constraints.min {
+                    if *n < min {
+                        errors.push(HoneError::ValueOutOfRange {
+                            src: self.source.clone(),
+                            span: (location.offset, location.length).into(),
+                            expected: format!("{}", expected),
+                            value: format!("{}", n),
+                            help: format!("value {} is less than minimum {}", n, min),
+                        });
+                        return;
+                    }
+                }
+                if let Some(max) = constraints.max {
+                    if *n > max {
+                        errors.push(HoneError::ValueOutOfRange {
+                            src: self.source.clone(),
+                            span: (location.offset, location.length).into(),
+                            expected: format!("{}", expected),
+                            value: format!("{}", n),
+                            help: format!("value {} is greater than maximum {}", n, max),
+                        });
+                    }
+                }
+            }
+
+            // Constrained string type
+            (Value::String(s), Type::StringConstrained(constraints)) => {
+                let char_count = s.chars().count();
+                if let Some(min_len) = constraints.min_len {
+                    if char_count < min_len {
+                        errors.push(HoneError::ValueOutOfRange {
+                            src: self.source.clone(),
+                            span: (location.offset, location.length).into(),
+                            expected: format!("{}", expected),
+                            value: format!("string of length {}", char_count),
+                            help: format!(
+                                "string length {} is less than minimum {}",
+                                char_count, min_len
+                            ),
+                        });
+                        return;
+                    }
+                }
+                if let Some(max_len) = constraints.max_len {
+                    if char_count > max_len {
+                        errors.push(HoneError::ValueOutOfRange {
+                            src: self.source.clone(),
+                            span: (location.offset, location.length).into(),
+                            expected: format!("{}", expected),
+                            value: format!("string of length {}", char_count),
+                            help: format!(
+                                "string length {} is greater than maximum {}",
+                                char_count, max_len
+                            ),
+                        });
+                        return;
+                    }
+                }
+                if let Some(ref pattern) = constraints.pattern {
+                    let re = self
+                        .regex_cache
+                        .get(pattern)
+                        .cloned()
+                        .or_else(|| regex::Regex::new(pattern).ok());
+                    match re {
+                        Some(re) => {
+                            if !re.is_match(s) {
+                                errors.push(HoneError::PatternMismatch {
+                                    src: self.source.clone(),
+                                    span: (location.offset, location.length).into(),
+                                    pattern: pattern.clone(),
+                                    value: s.clone(),
+                                    help: format!(
+                                        "string \"{}\" does not match pattern /{}/",
+                                        s, pattern
+                                    ),
+                                });
+                            }
+                        }
+                        None => {
+                            errors.push(HoneError::TypeMismatch {
+                                src: self.source.clone(),
+                                span: (location.offset, location.length).into(),
+                                expected: "valid regex pattern".to_string(),
+                                found: format!("\"{}\"", pattern),
+                                help: format!("invalid regex pattern: \"{}\"", pattern),
+                            });
+                        }
+                    }
+                }
+            }
+
+            // String literal type
+            (Value::String(s), Type::StringLiteral(expected_s)) => {
+                if s != expected_s {
+                    errors.push(HoneError::TypeMismatch {
+                        src: self.source.clone(),
+                        span: (location.offset, location.length).into(),
+                        expected: format!("\"{}\"", expected_s),
+                        found: format!("\"{}\"", s),
+                        help: format!("expected literal \"{}\" but got \"{}\"", expected_s, s),
+                    });
+                }
+            }
+
+            // Number matches int or float
+            (Value::Int(_), Type::Number) | (Value::Float(_), Type::Number) => {}
+
+            // Arrays
+            (Value::Array(items), Type::Array(elem_type)) => {
+                for (i, item) in items.iter().enumerate() {
+                    let mut sub_errors = Vec::new();
+                    self.check_type_collecting(
+                        item,
+                        elem_type,
+                        fallback_location,
+                        path,
+                        location_map,
+                        &mut sub_errors,
+                    );
+                    for e in sub_errors {
+                        errors.push(self.annotate_array_error(e, i));
+                    }
+                }
+            }
+
+            // Objects without schema
+            (Value::Object(_), Type::Object(None)) => {}
+
+            // Objects with schema
+            (Value::Object(obj), Type::Schema(schema_name)) => {
+                self.check_schema_collecting(
+                    obj,
+                    schema_name,
+                    fallback_location,
+                    path,
+                    location_map,
+                    errors,
+                );
+            }
+
+            // Union types
+            (value, Type::Union(types)) => {
+                // Try each variant; if any succeeds, the union matches
+                for t in types {
+                    let mut temp = Vec::new();
+                    self.check_type_collecting(
+                        value,
+                        t,
+                        fallback_location,
+                        path,
+                        location_map,
+                        &mut temp,
+                    );
+                    if temp.is_empty() {
+                        return; // matched
+                    }
+                }
+                // None matched
+                errors.push(HoneError::TypeMismatch {
+                    src: self.source.clone(),
+                    span: (location.offset, location.length).into(),
+                    expected: format!("{}", Type::Union(types.clone())),
+                    found: value.type_name().to_string(),
+                    help: "value does not match any type in the union".to_string(),
+                });
+            }
+
+            // Optional type
+            (Value::Null, Type::Optional(_)) => {}
+            (value, Type::Optional(inner)) => {
+                self.check_type_collecting(
+                    value,
+                    inner,
+                    fallback_location,
+                    path,
+                    location_map,
+                    errors,
+                );
+            }
+
+            // Type mismatch
+            (value, expected) => {
+                errors.push(HoneError::TypeMismatch {
+                    src: self.source.clone(),
+                    span: (location.offset, location.length).into(),
+                    expected: format!("{}", expected),
+                    found: value.type_name().to_string(),
+                    help: if path.is_empty() {
+                        format!("expected {}, got {}", expected, value.type_name())
+                    } else {
+                        format!(
+                            "at {}: expected {}, got {}",
+                            path,
+                            expected,
+                            value.type_name()
+                        )
+                    },
+                });
+            }
+        }
+    }
+
+    /// Internal: mirrors `check_schema_at_path` but collects all errors.
+    fn check_schema_collecting(
+        &self,
+        obj: &indexmap::IndexMap<String, Value>,
+        schema_name: &str,
+        fallback_location: &SourceLocation,
+        path: &str,
+        location_map: &LocationMap,
+        errors: &mut Vec<HoneError>,
+    ) {
+        let mut known_fields: std::collections::HashSet<&str> = std::collections::HashSet::new();
+        let mut is_open = false;
+        self.collect_schema_fields(schema_name, &mut known_fields, &mut is_open);
+
+        self.validate_schema_fields_collecting(
+            obj,
+            schema_name,
+            fallback_location,
+            path,
+            location_map,
+            errors,
+        );
+
+        // Reject unknown fields if schema is closed
+        if !is_open {
+            // Resolve location for unknown field errors
+            let location = location_map.get(path).unwrap_or(fallback_location);
+            for key in obj.keys() {
+                if !known_fields.contains(key.as_str()) {
+                    let mut defined: Vec<_> = known_fields.iter().copied().collect();
+                    defined.sort();
+                    errors.push(HoneError::UnknownField {
+                        src: self.source.clone(),
+                        span: (location.offset, location.length).into(),
+                        field: key.clone(),
+                        schema: schema_name.to_string(),
+                        help: format!(
+                            "defined fields: {}; add '...' to the schema to allow extra fields",
+                            defined.join(", ")
+                        ),
+                    });
+                }
+            }
+        }
+    }
+
+    /// Internal: mirrors `validate_schema_fields` but collects all errors.
+    fn validate_schema_fields_collecting(
+        &self,
+        obj: &indexmap::IndexMap<String, Value>,
+        schema_name: &str,
+        fallback_location: &SourceLocation,
+        path: &str,
+        location_map: &LocationMap,
+        errors: &mut Vec<HoneError>,
+    ) {
+        let schema = match self.schemas.get(schema_name) {
+            Some(s) => s,
+            None => {
+                // Use fallback for undefined schema (no definition site to point to)
+                errors.push(HoneError::UndefinedVariable {
+                    src: self.source.clone(),
+                    span: (fallback_location.offset, fallback_location.length).into(),
+                    name: schema_name.to_string(),
+                    help: format!("define schema '{}' before using it", schema_name),
+                });
+                return;
+            }
+        };
+
+        // Check parent schema fields first
+        if let Some(ref parent_name) = schema.extends.clone() {
+            self.validate_schema_fields_collecting(
+                obj,
+                parent_name,
+                fallback_location,
+                path,
+                location_map,
+                errors,
+            );
+        }
+
+        // Check this schema's fields
+        let fields = schema.fields.clone();
+        for field in &fields {
+            let field_path = if path.is_empty() {
+                field.name.clone()
+            } else {
+                format!("{}.{}", path, field.name)
+            };
+
+            match obj.get(&field.name) {
+                Some(value) => {
+                    self.check_type_collecting(
+                        value,
+                        &field.field_type,
+                        fallback_location,
+                        &field_path,
+                        location_map,
+                        errors,
+                    );
+                }
+                None if !field.optional => {
+                    // Missing fields always point to the use-statement / fallback
+                    // (there's no definition site for something that's absent)
+                    errors.push(HoneError::MissingField {
+                        src: self.source.clone(),
+                        span: (fallback_location.offset, fallback_location.length).into(),
+                        field: field.name.clone(),
+                        schema: schema_name.to_string(),
+                    });
+                }
+                None => {} // Optional field not present, OK
+            }
+        }
     }
 
     /// Annotate an error with array index context

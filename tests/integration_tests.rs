@@ -3944,3 +3944,165 @@ port: base_port
     assert_eq!(json_val["greeting"], "Hi, World");
     assert_eq!(json_val["port"], 8080);
 }
+
+// ── Schema error location & multi-error tests ────────────────────────
+
+#[test]
+fn test_schema_multiple_errors_collected() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("test.hone");
+    std::fs::write(
+        &file,
+        r#"
+schema Config {
+    name: string
+    port: int
+    debug: bool
+}
+
+use Config
+
+name: 42
+port: "bad"
+debug: "yes"
+"#,
+    )
+    .unwrap();
+    let mut compiler = hone::Compiler::new(dir.path());
+    let result = compiler.compile(&file);
+    assert!(result.is_err(), "should fail schema validation");
+    let err = result.unwrap_err();
+    let msg = err.message();
+    // All three violations should be reported
+    assert!(msg.contains("3 errors"), "expected 3 errors, got: {}", msg);
+}
+
+#[test]
+fn test_schema_single_error_not_wrapped() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("test.hone");
+    std::fs::write(
+        &file,
+        r#"
+schema Config {
+    name: string
+    port: int
+}
+
+use Config
+
+name: "valid"
+port: "bad"
+"#,
+    )
+    .unwrap();
+    let mut compiler = hone::Compiler::new(dir.path());
+    let result = compiler.compile(&file);
+    assert!(result.is_err(), "should fail schema validation");
+    let err = result.unwrap_err();
+    let msg = err.message();
+    // Single error: not wrapped in SchemaValidationErrors
+    assert!(
+        !msg.contains("schema validation failed"),
+        "single error should not be wrapped: {}",
+        msg
+    );
+    assert!(
+        msg.contains("type mismatch") || msg.contains("expected"),
+        "should be a direct type error: {}",
+        msg
+    );
+}
+
+#[test]
+fn test_schema_error_points_to_value_location() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("test.hone");
+    std::fs::write(
+        &file,
+        r#"
+schema Server {
+    port: int
+}
+
+use Server
+
+port: "not-a-number"
+"#,
+    )
+    .unwrap();
+    let mut compiler = hone::Compiler::new(dir.path());
+    let result = compiler.compile(&file);
+    assert!(result.is_err());
+    let err = result.unwrap_err();
+    // The error span should point to the value definition line (line 8: port: "not-a-number")
+    // not to the use statement (line 6: use Server)
+    if let Some(span) = err.span() {
+        let source = std::fs::read_to_string(&file).unwrap();
+        let error_line = source[..span.start].matches('\n').count() + 1;
+        assert_eq!(
+            error_line, 8,
+            "error should point to line 8 (port: \"not-a-number\"), got line {}",
+            error_line
+        );
+    }
+}
+
+#[test]
+fn test_schema_missing_field_points_to_use_statement() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("test.hone");
+    std::fs::write(
+        &file,
+        r#"
+schema Config {
+    name: string
+    port: int
+}
+
+use Config
+
+name: "test"
+"#,
+    )
+    .unwrap();
+    let mut compiler = hone::Compiler::new(dir.path());
+    let result = compiler.compile(&file);
+    assert!(result.is_err());
+    let err = result.unwrap_err();
+    let msg = err.message();
+    assert!(
+        msg.contains("missing") || msg.contains("required"),
+        "should report missing field: {}",
+        msg
+    );
+}
+
+#[test]
+fn test_schema_valid_passes() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("test.hone");
+    std::fs::write(
+        &file,
+        r#"
+schema Config {
+    name: string
+    port: int
+    debug?: bool
+}
+
+use Config
+
+name: "my-app"
+port: 8080
+"#,
+    )
+    .unwrap();
+    let mut compiler = hone::Compiler::new(dir.path());
+    let result = compiler.compile(&file);
+    assert!(
+        result.is_ok(),
+        "valid config should pass: {:?}",
+        result.err()
+    );
+}

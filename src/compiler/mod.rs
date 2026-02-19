@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 use indexmap::IndexMap;
 
 use crate::errors::{HoneError, HoneResult, Warning};
-use crate::evaluator::{merge_values, Evaluator, MergeStrategy, Value};
+use crate::evaluator::{merge_values, Evaluator, LocationMap, MergeStrategy, Value};
 use crate::lexer::token::SourceLocation;
 use crate::parser::ast::{File, ImportKind, PreambleItem};
 use crate::resolver::ImportResolver;
@@ -27,6 +27,8 @@ pub struct CompiledFile {
     pub exports: HashMap<String, Value>,
     /// Exported function definitions
     pub fn_exports: HashMap<String, FnExportDef>,
+    /// Maps dot-paths to source locations for precise error reporting
+    pub location_map: LocationMap,
 }
 
 /// A stored user function definition for cross-file export
@@ -41,6 +43,7 @@ struct EvalExports {
     value: Value,
     exports: HashMap<String, Value>,
     fn_exports: HashMap<String, FnExportDef>,
+    location_map: LocationMap,
 }
 
 /// Compiler that handles multi-file compilation
@@ -133,8 +136,11 @@ impl Compiler {
             });
         }
 
+        // Build location map from evaluator
+        let location_map = evaluator.location_map().clone();
+
         // Type check against use statements if any (no imports for stdin)
-        self.validate_against_schemas(&ast, &value, source, &[], &unchecked_paths)?;
+        self.validate_against_schemas(&ast, &value, source, &[], &unchecked_paths, &location_map)?;
 
         // Check policies
         if !self.ignore_policies {
@@ -251,8 +257,9 @@ impl Compiler {
             }
         }
 
-        // Get unchecked paths from evaluator
+        // Get unchecked paths and location map from evaluator
         let unchecked_paths = evaluator.unchecked_paths().clone();
+        let location_map = evaluator.location_map().clone();
 
         // Generate warnings for unchecked paths
         for path_str in &unchecked_paths {
@@ -272,6 +279,7 @@ impl Compiler {
                 &source,
                 &import_paths,
                 &unchecked_paths,
+                &location_map,
             )?;
         }
 
@@ -352,6 +360,19 @@ impl Compiler {
         // Get unchecked paths from evaluator
         let unchecked_paths = evaluator.unchecked_paths().clone();
 
+        // Build location map: start with base's map, then overlay (overlay wins, matching deep merge)
+        let final_location_map = if let Some(ref from) = from_path {
+            let mut map = self
+                .compiled
+                .get(from)
+                .map(|c| c.location_map.clone())
+                .unwrap_or_default();
+            map.extend(eval_result.location_map.clone());
+            map
+        } else {
+            eval_result.location_map.clone()
+        };
+
         // Merge with base if present
         let final_value = if let Some(base) = base_value {
             merge_values(base, eval_result.value, MergeStrategy::Normal)
@@ -376,6 +397,7 @@ impl Compiler {
             &source,
             &import_paths,
             &unchecked_paths,
+            &final_location_map,
         )?;
 
         // Check policies
@@ -390,6 +412,7 @@ impl Compiler {
                 value: final_value,
                 exports: eval_result.exports,
                 fn_exports: eval_result.fn_exports,
+                location_map: final_location_map,
             },
         );
 
@@ -498,6 +521,7 @@ impl Compiler {
         source: &str,
         import_paths: &[PathBuf],
         unchecked_paths: &std::collections::HashSet<String>,
+        location_map: &LocationMap,
     ) -> HoneResult<()> {
         // Collect use statements
         let use_statements: Vec<_> = ast
@@ -552,12 +576,33 @@ impl Compiler {
                 });
             }
 
-            // Validate the output value against the schema
-            checker.check_type(
+            // Validate the output value against the schema, collecting all errors
+            let errors = checker.check_type_all(
                 value,
                 &Type::Schema(use_stmt.schema_name.clone()),
                 &location,
-            )?;
+                location_map,
+            );
+
+            if !errors.is_empty() {
+                if errors.len() == 1 {
+                    // Single error: return directly (backward compatible)
+                    return Err(errors.into_iter().next().unwrap());
+                } else {
+                    let count = errors.len();
+                    return Err(HoneError::SchemaValidationErrors {
+                        src: source.to_string(),
+                        span: (location.offset, location.length).into(),
+                        count,
+                        s: if count == 1 {
+                            "".to_string()
+                        } else {
+                            "s".to_string()
+                        },
+                        errors,
+                    });
+                }
+            }
         }
 
         Ok(())
@@ -672,6 +717,9 @@ impl Compiler {
         // Evaluate the file normally
         let value = evaluator.evaluate(ast)?;
 
+        // Extract location map
+        let location_map = evaluator.location_map().clone();
+
         // Extract exports by looking up the defined variables
         let mut exports = HashMap::new();
         for name in export_names {
@@ -684,6 +732,7 @@ impl Compiler {
             value,
             exports,
             fn_exports: fn_defs,
+            location_map,
         })
     }
 }
@@ -840,7 +889,32 @@ pub fn validate_against_schema(
         length: 1,
     };
 
-    checker.check_type(value, &Type::Schema(schema_name.to_string()), &location)
+    let empty_map = LocationMap::new();
+    let errors = checker.check_type_all(
+        value,
+        &Type::Schema(schema_name.to_string()),
+        &location,
+        &empty_map,
+    );
+
+    if errors.is_empty() {
+        Ok(())
+    } else if errors.len() == 1 {
+        Err(errors.into_iter().next().unwrap())
+    } else {
+        let count = errors.len();
+        Err(HoneError::SchemaValidationErrors {
+            src: source,
+            span: (location.offset, location.length).into(),
+            count,
+            s: if count == 1 {
+                "".to_string()
+            } else {
+                "s".to_string()
+            },
+            errors,
+        })
+    }
 }
 
 #[cfg(test)]

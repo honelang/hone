@@ -22,6 +22,10 @@ use crate::errors::{HoneError, HoneResult};
 use crate::lexer::token::SourceLocation;
 use crate::parser::ast::*;
 
+/// Maps dot-paths (e.g. "spec.replicas") to the source location where that key was defined.
+/// Used by the type checker to point errors at the offending value, not the `use` statement.
+pub type LocationMap = HashMap<String, SourceLocation>;
+
 /// A user-defined function stored in the evaluator
 #[derive(Debug, Clone)]
 struct UserFunction {
@@ -54,6 +58,8 @@ pub struct Evaluator {
     user_functions: HashMap<String, UserFunction>,
     /// Current recursion depth
     depth: usize,
+    /// Maps dot-paths to source locations where keys are defined
+    location_map: LocationMap,
 }
 
 impl Evaluator {
@@ -68,6 +74,7 @@ impl Evaluator {
             variant_selections: HashMap::new(),
             user_functions: HashMap::new(),
             depth: 0,
+            location_map: LocationMap::new(),
         }
     }
 
@@ -84,6 +91,11 @@ impl Evaluator {
     /// Get paths marked with @unchecked
     pub fn unchecked_paths(&self) -> &HashSet<String> {
         &self.unchecked_paths
+    }
+
+    /// Get the location map (dot-path -> SourceLocation)
+    pub fn location_map(&self) -> &LocationMap {
+        &self.location_map
     }
 
     /// Evaluate policy declarations against the final output value.
@@ -417,6 +429,8 @@ impl Evaluator {
             BodyItem::KeyValue(kv) => {
                 let key = self.eval_key(&kv.key)?;
                 self.current_path.push(key.clone());
+                let path_str = self.current_path.join(".");
+                self.location_map.insert(path_str, kv.location.clone());
                 let value = self.eval_expr(&kv.value)?;
                 self.current_path.pop();
 
@@ -458,6 +472,8 @@ impl Evaluator {
             BodyItem::Block(block) => {
                 // Block is shorthand for key: { ... }
                 self.current_path.push(block.name.clone());
+                let path_str = self.current_path.join(".");
+                self.location_map.insert(path_str, block.location.clone());
                 self.scopes.push();
                 let mut obj = IndexMap::new();
                 for item in &block.items {
@@ -535,6 +551,12 @@ impl Evaluator {
                 let value = self.eval_expr(&spread.expr)?;
                 if let Value::Object(obj) = value {
                     for (k, v) in obj {
+                        let path_str = if self.current_path.is_empty() {
+                            k.clone()
+                        } else {
+                            format!("{}.{}", self.current_path.join("."), k)
+                        };
+                        self.location_map.insert(path_str, spread.location.clone());
                         target.insert(k, v);
                     }
                 } else {
@@ -1794,5 +1816,73 @@ config {
         // Append requires compatible types
         let result = eval("x: 1\nx +: [2]");
         assert!(result.is_err());
+    }
+
+    // ── Location map tests ───────────────────────────────────────────────
+
+    fn eval_with_locations(source: &str) -> HoneResult<(Value, LocationMap)> {
+        let mut lexer = Lexer::new(source, None);
+        let tokens = lexer.tokenize()?;
+        let mut parser = Parser::new(tokens, source, None);
+        let ast = parser.parse()?;
+        let mut evaluator = Evaluator::new(source);
+        let value = evaluator.evaluate(&ast)?;
+        Ok((value, evaluator.location_map().clone()))
+    }
+
+    #[test]
+    fn test_location_map_key_values() {
+        let source = "name: \"hello\"\nport: 8080";
+        let (_value, locations) = eval_with_locations(source).unwrap();
+        assert!(locations.contains_key("name"), "should record 'name' path");
+        assert!(locations.contains_key("port"), "should record 'port' path");
+        assert_eq!(locations["name"].line, 1);
+        assert_eq!(locations["port"].line, 2);
+    }
+
+    #[test]
+    fn test_location_map_blocks() {
+        let source = "server {\n  host: \"localhost\"\n  port: 8080\n}";
+        let (_value, locations) = eval_with_locations(source).unwrap();
+        assert!(locations.contains_key("server"), "should record block path");
+        assert!(
+            locations.contains_key("server.host"),
+            "should record nested key"
+        );
+        assert!(
+            locations.contains_key("server.port"),
+            "should record nested key"
+        );
+        assert_eq!(locations["server"].line, 1);
+        assert_eq!(locations["server.host"].line, 2);
+        assert_eq!(locations["server.port"].line, 3);
+    }
+
+    #[test]
+    fn test_location_map_spread() {
+        let source = "let base = { a: 1, b: 2 }\n...base";
+        let (_value, locations) = eval_with_locations(source).unwrap();
+        assert!(locations.contains_key("a"), "should record spread key 'a'");
+        assert!(locations.contains_key("b"), "should record spread key 'b'");
+    }
+
+    #[test]
+    fn test_location_map_when_block() {
+        let source = "let x = true\nwhen x {\n  enabled: true\n}";
+        let (_value, locations) = eval_with_locations(source).unwrap();
+        assert!(
+            locations.contains_key("enabled"),
+            "should record key inside when block"
+        );
+    }
+
+    #[test]
+    fn test_location_map_deeply_nested() {
+        let source = "a {\n  b {\n    c: 42\n  }\n}";
+        let (_value, locations) = eval_with_locations(source).unwrap();
+        assert!(locations.contains_key("a"));
+        assert!(locations.contains_key("a.b"));
+        assert!(locations.contains_key("a.b.c"));
+        assert_eq!(locations["a.b.c"].line, 3);
     }
 }

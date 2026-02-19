@@ -444,6 +444,19 @@ pub enum HoneError {
         help: String,
     },
 
+    #[error("schema validation failed ({count} error{s})")]
+    #[diagnostic(help("fix all schema violations listed below"))]
+    SchemaValidationErrors {
+        #[source_code]
+        src: String,
+        #[label("schema applied here")]
+        span: SourceSpan,
+        count: usize,
+        s: String,
+        #[related]
+        errors: Vec<HoneError>,
+    },
+
     #[error("I/O error: {message}")]
     IoError { message: String },
 
@@ -570,6 +583,7 @@ impl HoneError {
             HoneError::EnvNotAllowed { span, .. } => Some(Span::from(*span)),
             HoneError::RecursionLimitExceeded { span, .. } => Some(Span::from(*span)),
             HoneError::SecretInOutput { span, .. } => Some(Span::from(*span)),
+            HoneError::SchemaValidationErrors { span, .. } => Some(Span::from(*span)),
             HoneError::IoError { .. } => None,
             HoneError::CompilationError { .. } => None,
         }
@@ -644,6 +658,15 @@ impl HoneError {
             }
             HoneError::SecretInOutput { path, .. } => {
                 format!("secret placeholder in output at path: {}", path)
+            }
+            HoneError::SchemaValidationErrors { count, errors, .. } => {
+                let msgs: Vec<String> = errors.iter().map(|e| e.message()).collect();
+                format!(
+                    "schema validation failed ({} error{}): {}",
+                    count,
+                    if *count == 1 { "" } else { "s" },
+                    msgs.join("; ")
+                )
             }
             HoneError::IoError { message } => format!("I/O error: {}", message),
             HoneError::CompilationError { message } => message.clone(),
