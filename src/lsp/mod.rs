@@ -236,6 +236,11 @@ impl HoneLanguageServer {
             ),
             ("deny", "Policy deny level", "deny"),
             ("warn", "Policy warn level", "warn"),
+            (
+                "fn",
+                "Function definition",
+                "fn $1($2) {\n\t$3\n}",
+            ),
         ];
 
         for (keyword, detail, snippet) in keywords {
@@ -280,6 +285,45 @@ impl HoneLanguageServer {
             ("to_bool", "Convert value to boolean", "to_bool($1)"),
             ("env", "Get environment variable", "env(\"$1\")"),
             ("file", "Read file contents", "file(\"$1\")"),
+            ("sort", "Sort an array", "sort($1)"),
+            (
+                "starts_with",
+                "Check if string starts with prefix",
+                "starts_with($1, $2)",
+            ),
+            (
+                "ends_with",
+                "Check if string ends with suffix",
+                "ends_with($1, $2)",
+            ),
+            ("min", "Return the smaller of two numbers", "min($1, $2)"),
+            ("max", "Return the larger of two numbers", "max($1, $2)"),
+            ("abs", "Absolute value of a number", "abs($1)"),
+            ("unique", "Remove duplicates from array", "unique($1)"),
+            ("sha256", "SHA-256 hash of a string", "sha256($1)"),
+            ("type_of", "Get the type name of a value", "type_of($1)"),
+            (
+                "substring",
+                "Extract substring by index",
+                "substring($1, $2, $3)",
+            ),
+            ("entries", "Object to [[key, value], ...] array", "entries($1)"),
+            (
+                "from_entries",
+                "[[key, value], ...] array to object",
+                "from_entries($1)",
+            ),
+            (
+                "clamp",
+                "Clamp a number between min and max",
+                "clamp($1, $2, $3)",
+            ),
+            ("reverse", "Reverse an array or string", "reverse($1)"),
+            (
+                "slice",
+                "Extract a sub-array or substring",
+                "slice($1, $2, $3)",
+            ),
         ];
 
         for (name, detail, snippet) in builtins {
@@ -303,6 +347,20 @@ impl HoneLanguageServer {
                             label: binding.name.clone(),
                             kind: Some(CompletionItemKind::VARIABLE),
                             detail: Some("Local variable".to_string()),
+                            ..Default::default()
+                        });
+                    }
+                }
+                // Check preamble for fn definitions
+                for item in &ast.preamble {
+                    if let PreambleItem::FnDef(fn_def) = item {
+                        let sig = format!("fn {}({})", fn_def.name, fn_def.params.join(", "));
+                        items.push(CompletionItem {
+                            label: fn_def.name.clone(),
+                            kind: Some(CompletionItemKind::FUNCTION),
+                            detail: Some(sig),
+                            insert_text: Some(format!("{}($1)", fn_def.name)),
+                            insert_text_format: Some(InsertTextFormat::SNIPPET),
                             ..Default::default()
                         });
                     }
@@ -404,6 +462,21 @@ impl HoneLanguageServer {
             ("to_bool", "**to_bool**(value) -> bool\n\nConverts value to boolean using truthiness.\n\n```hone\nto_bool(1)  // true\nto_bool(\"\")  // false\n```"),
             ("env", "**env**(name, default?) -> string\n\nReads environment variable.\n\n```hone\nenv(\"HOME\")\nenv(\"MISSING\", \"default\")\n```"),
             ("file", "**file**(path) -> string\n\nReads file contents as string.\n\n```hone\nfile(\"./config.txt\")\n```"),
+            ("sort", "**sort**(array) -> array\n\nSorts an array of comparable values (ints, floats, strings).\n\n```hone\nsort([3, 1, 2])  // [1, 2, 3]\nsort([\"c\", \"a\", \"b\"])  // [\"a\", \"b\", \"c\"]\n```"),
+            ("starts_with", "**starts_with**(string, prefix) -> bool\n\nChecks if a string starts with the given prefix.\n\n```hone\nstarts_with(\"hello\", \"he\")  // true\n```"),
+            ("ends_with", "**ends_with**(string, suffix) -> bool\n\nChecks if a string ends with the given suffix.\n\n```hone\nends_with(\"hello\", \"lo\")  // true\n```"),
+            ("min", "**min**(a, b) -> number\n\nReturns the smaller of two numbers.\n\n```hone\nmin(3, 7)  // 3\n```"),
+            ("max", "**max**(a, b) -> number\n\nReturns the larger of two numbers.\n\n```hone\nmax(3, 7)  // 7\n```"),
+            ("abs", "**abs**(number) -> number\n\nReturns the absolute value of a number.\n\n```hone\nabs(-5)  // 5\nabs(3.14)  // 3.14\n```"),
+            ("unique", "**unique**(array) -> array\n\nRemoves duplicate values, preserving first occurrence order.\n\n```hone\nunique([1, 2, 2, 3, 1])  // [1, 2, 3]\n```"),
+            ("sha256", "**sha256**(string) -> string\n\nReturns the SHA-256 hex digest of a string.\n\n```hone\nsha256(\"hello\")  // \"2cf24dba...\"\n```"),
+            ("type_of", "**type_of**(value) -> string\n\nReturns the type name of a value.\n\n```hone\ntype_of(42)  // \"int\"\ntype_of(\"hi\")  // \"string\"\ntype_of([1])  // \"array\"\n```"),
+            ("substring", "**substring**(string, start, end?) -> string\n\nExtracts a substring by character index (0-based, end exclusive).\n\n```hone\nsubstring(\"hello\", 1, 4)  // \"ell\"\nsubstring(\"hello\", 2)  // \"llo\"\n```"),
+            ("entries", "**entries**(object) -> array\n\nConverts an object to an array of [key, value] pairs.\n\n```hone\nentries({ a: 1, b: 2 })  // [[\"a\", 1], [\"b\", 2]]\n```"),
+            ("from_entries", "**from_entries**(array) -> object\n\nConverts an array of [key, value] pairs to an object.\n\n```hone\nfrom_entries([[\"a\", 1], [\"b\", 2]])  // { a: 1, b: 2 }\n```"),
+            ("clamp", "**clamp**(value, min, max) -> number\n\nClamps a number between min and max (inclusive).\n\n```hone\nclamp(15, 0, 10)  // 10\nclamp(-5, 0, 10)  // 0\n```"),
+            ("reverse", "**reverse**(value) -> array | string\n\nReverses an array or string.\n\n```hone\nreverse([1, 2, 3])  // [3, 2, 1]\nreverse(\"hello\")  // \"olleh\"\n```"),
+            ("slice", "**slice**(value, start, end?) -> array | string\n\nExtracts a sub-array or substring. Supports negative indices.\n\n```hone\nslice([1, 2, 3, 4], 1, 3)  // [2, 3]\nslice(\"hello\", -3)  // \"llo\"\n```"),
         ];
 
         for (name, doc) in builtin_docs {
@@ -519,6 +592,25 @@ impl HoneLanguageServer {
                             info.push_str(&format!(" = {}", default.display()));
                         }
                         info.push_str("\n\n*CLI argument declaration*");
+                        return Some(Hover {
+                            contents: HoverContents::Markup(MarkupContent {
+                                kind: MarkupKind::Markdown,
+                                value: info,
+                            }),
+                            range: None,
+                        });
+                    }
+                }
+                // Check fn definitions
+                if let PreambleItem::FnDef(fn_def) = item {
+                    if fn_def.name == word {
+                        let sig = format!("fn {}({})", fn_def.name, fn_def.params.join(", "));
+                        let info = format!(
+                            "**{}** - User-defined function\n\n```hone\n{} {{\n  {}\n}}\n```",
+                            fn_def.name,
+                            sig,
+                            fn_def.body.display()
+                        );
                         return Some(Hover {
                             contents: HoverContents::Markup(MarkupContent {
                                 kind: MarkupKind::Markdown,

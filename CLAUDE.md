@@ -131,6 +131,56 @@ let items = for (key, value) in { a: 1, b: 2 } {
 }
 ```
 
+### User-Defined Functions
+
+Define reusable functions in the preamble with `fn`. Functions are not first-class values -- they can only be defined at the top level and called by name.
+
+```hone
+fn double(x) {
+  x * 2
+}
+
+fn greet(name, title) {
+  "Hello, ${title} ${name}!"
+}
+
+result: double(21)              # 42
+message: greet("Alice", "Dr.")  # "Hello, Dr. Alice!"
+```
+
+Functions can call builtins and other user-defined functions:
+
+```hone
+fn slugify(s) {
+  lower(replace(trim(s), " ", "-"))
+}
+
+fn make_label(app, env) {
+  "${slugify(app)}-${env}"
+}
+
+label: make_label("My App", "prod")  # "my-app-prod"
+```
+
+Functions can be exported across files via named imports:
+
+```hone
+# utils.hone
+fn double(x) { x * 2 }
+fn triple(x) { x * 3 }
+
+# main.hone
+import { double } from "./utils.hone"
+result: double(5)  # 10
+```
+
+Key details:
+- Functions are defined in the preamble (before body key-value pairs)
+- The body is a single expression (the return value)
+- Parameters are scoped -- they don't leak into the caller
+- A user function with the same name as a builtin overrides it
+- `fn` is a reserved keyword and cannot be used as a bare key
+
 ### Imports
 
 ```hone
@@ -377,6 +427,21 @@ TypeMismatch: expected int(1, 65535), found int (value: 99999)
 | `to_str(v)` | Convert to string | `to_str(42)` → `"42"` |
 | `to_bool(v)` | Convert to bool (truthiness) | `to_bool(1)` → `true` |
 | `merge(objs...)` | Shallow merge objects (right wins) | `merge({a:1}, {b:2})` → `{a:1, b:2}` |
+| `sort(arr)` | Sort array (numbers, strings, mixed) | `sort([3,1,2])` → `[1,2,3]` |
+| `reverse(arr)` | Reverse array | `reverse([1,2,3])` → `[3,2,1]` |
+| `unique(arr)` | Remove duplicates from array | `unique([1,2,1])` → `[1,2]` |
+| `slice(arr, start, end?)` | Slice array (negative indices supported) | `slice([1,2,3,4], 1, 3)` → `[2,3]` |
+| `min(a, b)` | Minimum of two numbers | `min(3, 7)` → `3` |
+| `max(a, b)` | Maximum of two numbers | `max(3, 7)` → `7` |
+| `abs(n)` | Absolute value | `abs(-5)` → `5` |
+| `clamp(n, lo, hi)` | Clamp number to range | `clamp(10, 0, 5)` → `5` |
+| `starts_with(s, prefix)` | Check string prefix | `starts_with("hello", "he")` → `true` |
+| `ends_with(s, suffix)` | Check string suffix | `ends_with("hello", "lo")` → `true` |
+| `substring(s, start, end?)` | Extract substring | `substring("hello", 1, 3)` → `el` |
+| `type_of(v)` | Get type name as string | `type_of(42)` → `"int"` |
+| `entries(obj)` | Object to `[[key, value], ...]` | `entries({a:1})` → `[["a",1]]` |
+| `from_entries(arr)` | `[[key, value], ...]` to object | `from_entries([["a",1]])` → `{a:1}` |
+| `sha256(s)` | SHA256 hash of string | `sha256("hi")` → `"8f43..."` |
 
 For transforming collections, use for comprehensions: `for x in items { x * 2 }`
 
@@ -399,7 +464,7 @@ Hone's type system is honest: `true` is a boolean, `"true"` is a string. Target 
 
 ### Reserved Words as Keys
 
-Keywords like `type`, `schema`, `import`, `for`, `when`, `else`, `expect` cannot be used as bare keys. Quote them:
+Keywords like `type`, `schema`, `import`, `for`, `when`, `else`, `expect`, `fn` cannot be used as bare keys. Quote them:
 
 ```hone
 # Wrong: type: "Deployment"
@@ -854,7 +919,7 @@ hone compile examples/ci-pipeline/main.hone --format yaml --variant deploy=produ
 ## Build and Test
 
 ```bash
-cargo test                    # 556 tests, all must pass
+cargo test                    # 647 tests, all must pass
 cargo clippy -- -D warnings   # Zero warnings required
 cargo fmt -- --check          # Formatting enforced
 scripts/verify-examples.sh ./target/release/hone  # 15 example checks

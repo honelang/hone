@@ -145,7 +145,8 @@ impl Parser {
             | TokenKind::From
             | TokenKind::Import
             | TokenKind::Use
-            | TokenKind::Secret => true,
+            | TokenKind::Secret
+            | TokenKind::Fn => true,
             // These are preamble items only if NOT followed by `:` (which would mean key usage)
             TokenKind::Schema
             | TokenKind::Type
@@ -173,7 +174,8 @@ impl Parser {
             TokenKind::Expect => Ok(PreambleItem::Expect(self.parse_expect()?)),
             TokenKind::Secret => Ok(PreambleItem::Secret(self.parse_secret()?)),
             TokenKind::Policy => Ok(PreambleItem::Policy(self.parse_policy()?)),
-            _ => Err(self.error_unexpected("preamble item (let, from, import, schema, type, use, variant, expect, secret, policy)")),
+            TokenKind::Fn => Ok(PreambleItem::FnDef(self.parse_fn_def()?)),
+            _ => Err(self.error_unexpected("preamble item (let, from, import, schema, type, use, variant, expect, secret, policy, fn)")),
         }
     }
 
@@ -668,6 +670,41 @@ impl Parser {
             level,
             condition,
             message,
+            location: start_loc.span_to(&end_loc),
+        })
+    }
+
+    /// Parse function definition: `fn name(params) { expr }`
+    fn parse_fn_def(&mut self) -> HoneResult<FnDefinition> {
+        let start_loc = self.current_location();
+        self.expect(&TokenKind::Fn)?;
+
+        let name = self.expect_ident("function name")?;
+
+        // Parse parameter list
+        self.expect(&TokenKind::LeftParen)?;
+        let mut params = Vec::new();
+        while !self.check(&TokenKind::RightParen) {
+            if !params.is_empty() {
+                self.expect(&TokenKind::Comma)?;
+            }
+            let param = self.expect_ident("parameter name")?;
+            params.push(param);
+        }
+        self.expect(&TokenKind::RightParen)?;
+
+        // Parse body: { expr }
+        self.expect(&TokenKind::LeftBrace)?;
+        self.skip_newlines();
+        let body = self.parse_expr()?;
+        self.skip_newlines();
+        self.expect(&TokenKind::RightBrace)?;
+
+        let end_loc = self.previous_location();
+        Ok(FnDefinition {
+            name,
+            params,
+            body,
             location: start_loc.span_to(&end_loc),
         })
     }

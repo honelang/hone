@@ -25,6 +25,22 @@ pub struct CompiledFile {
     pub value: Value,
     /// Exported variables (from let bindings)
     pub exports: HashMap<String, Value>,
+    /// Exported function definitions
+    pub fn_exports: HashMap<String, FnExportDef>,
+}
+
+/// A stored user function definition for cross-file export
+#[derive(Debug, Clone)]
+pub struct FnExportDef {
+    pub params: Vec<String>,
+    pub body: crate::parser::ast::Expr,
+}
+
+/// Result of evaluating a file for exports
+struct EvalExports {
+    value: Value,
+    exports: HashMap<String, Value>,
+    fn_exports: HashMap<String, FnExportDef>,
 }
 
 /// Compiler that handles multi-file compilation
@@ -331,16 +347,16 @@ impl Compiler {
         };
 
         // Evaluate the file
-        let (value, exports) = self.evaluate_with_exports(&mut evaluator, &ast)?;
+        let eval_result = self.evaluate_with_exports(&mut evaluator, &ast)?;
 
         // Get unchecked paths from evaluator
         let unchecked_paths = evaluator.unchecked_paths().clone();
 
         // Merge with base if present
         let final_value = if let Some(base) = base_value {
-            merge_values(base, value, MergeStrategy::Normal)
+            merge_values(base, eval_result.value, MergeStrategy::Normal)
         } else {
-            value
+            eval_result.value
         };
 
         // Generate warnings for unchecked paths
@@ -372,7 +388,8 @@ impl Compiler {
             file_path.to_path_buf(),
             CompiledFile {
                 value: final_value,
-                exports,
+                exports: eval_result.exports,
+                fn_exports: eval_result.fn_exports,
             },
         );
 
@@ -438,6 +455,18 @@ impl Compiler {
                             for name_import in names {
                                 let local_name =
                                     name_import.alias.as_ref().unwrap_or(&name_import.name);
+
+                                // Check if it's a function export first
+                                if let Some(fn_def) =
+                                    compiled.fn_exports.get(&name_import.name)
+                                {
+                                    evaluator.register_user_function(
+                                        local_name.clone(),
+                                        fn_def.params.clone(),
+                                        fn_def.body.clone(),
+                                    );
+                                    continue;
+                                }
 
                                 // Look for the name in exports first, then in output
                                 let value = compiled
@@ -609,7 +638,7 @@ impl Compiler {
         &self,
         evaluator: &mut Evaluator,
         ast: &File,
-    ) -> HoneResult<(Value, HashMap<String, Value>)> {
+    ) -> HoneResult<EvalExports> {
         // Collect export names from let bindings
         let export_names: Vec<String> = ast
             .preamble
@@ -617,6 +646,22 @@ impl Compiler {
             .filter_map(|item| {
                 if let PreambleItem::Let(binding) = item {
                     Some(binding.name.clone())
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        // Collect fn export definitions
+        let fn_defs: HashMap<String, FnExportDef> = ast
+            .preamble
+            .iter()
+            .filter_map(|item| {
+                if let PreambleItem::FnDef(fn_def) = item {
+                    Some((fn_def.name.clone(), FnExportDef {
+                        params: fn_def.params.clone(),
+                        body: fn_def.body.clone(),
+                    }))
                 } else {
                     None
                 }
@@ -634,7 +679,11 @@ impl Compiler {
             }
         }
 
-        Ok((value, exports))
+        Ok(EvalExports {
+            value,
+            exports,
+            fn_exports: fn_defs,
+        })
     }
 }
 

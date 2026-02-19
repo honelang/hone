@@ -22,6 +22,13 @@ use crate::errors::{HoneError, HoneResult};
 use crate::lexer::token::SourceLocation;
 use crate::parser::ast::*;
 
+/// A user-defined function stored in the evaluator
+#[derive(Debug, Clone)]
+struct UserFunction {
+    params: Vec<String>,
+    body: Expr,
+}
+
 pub use merge::{merge_values, MergeBuilder, MergeStrategy};
 pub use scope::{Scope, ScopeStack};
 pub use value::Value;
@@ -43,6 +50,8 @@ pub struct Evaluator {
     current_path: Vec<String>,
     /// Variant selections (variant_name -> case_name)
     variant_selections: HashMap<String, String>,
+    /// User-defined functions (name -> definition)
+    user_functions: HashMap<String, UserFunction>,
     /// Current recursion depth
     depth: usize,
 }
@@ -57,6 +66,7 @@ impl Evaluator {
             unchecked_paths: HashSet::new(),
             current_path: Vec::new(),
             variant_selections: HashMap::new(),
+            user_functions: HashMap::new(),
             depth: 0,
         }
     }
@@ -211,6 +221,15 @@ impl Evaluator {
             }
             PreambleItem::Policy(_) => {
                 // Policies are evaluated post-compilation by the compiler
+            }
+            PreambleItem::FnDef(fn_def) => {
+                self.user_functions.insert(
+                    fn_def.name.clone(),
+                    UserFunction {
+                        params: fn_def.params.clone(),
+                        body: fn_def.body.clone(),
+                    },
+                );
             }
         }
         Ok(())
@@ -1144,6 +1163,38 @@ impl Evaluator {
             .map(|a| self.eval_expr(a))
             .collect::<HoneResult<_>>()?;
 
+        // Check user-defined functions first
+        if let Some(user_fn) = self.user_functions.get(&func_name).cloned() {
+            if args.len() != user_fn.params.len() {
+                return Err(HoneError::TypeMismatch {
+                    src: self.source.clone(),
+                    span: (call.location.offset, call.location.length).into(),
+                    expected: format!(
+                        "{} argument(s) for fn {}",
+                        user_fn.params.len(),
+                        func_name
+                    ),
+                    found: format!("{} argument(s)", args.len()),
+                    help: format!(
+                        "fn {}({}) takes exactly {} argument(s)",
+                        func_name,
+                        user_fn.params.join(", "),
+                        user_fn.params.len()
+                    ),
+                });
+            }
+
+            // Create a new scope with parameter bindings
+            self.scopes.push();
+            for (param, arg) in user_fn.params.iter().zip(args.iter()) {
+                self.scopes.define(param, arg.clone());
+            }
+
+            let result = self.eval_expr(&user_fn.body);
+            self.scopes.pop();
+            return result;
+        }
+
         // Gate env/file behind --allow-env
         if !self.allow_env && (func_name == "env" || func_name == "file") {
             let help = if func_name == "env" {
@@ -1220,6 +1271,17 @@ impl Evaluator {
     /// Lookup a variable in the current scope
     pub fn lookup(&self, name: &str) -> Option<Value> {
         self.scopes.get(name).cloned()
+    }
+
+    /// Get user-defined function names (for export)
+    pub fn user_function_names(&self) -> Vec<String> {
+        self.user_functions.keys().cloned().collect()
+    }
+
+    /// Register a user-defined function (for import)
+    pub fn register_user_function(&mut self, name: String, params: Vec<String>, body: Expr) {
+        self.user_functions
+            .insert(name, UserFunction { params, body });
     }
 
     /// Evaluate a when/else chain in body context (merges items into target object)

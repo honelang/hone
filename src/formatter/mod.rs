@@ -181,6 +181,7 @@ impl Formatter {
             PreambleItem::Expect(e) => e.location.line,
             PreambleItem::Secret(s) => s.location.line,
             PreambleItem::Policy(p) => p.location.line,
+            PreambleItem::FnDef(f) => f.location.line,
         }
     }
 
@@ -371,6 +372,26 @@ impl Formatter {
                 }
                 self.emit_inline_comment(policy.location.line);
                 self.output.push('\n');
+            }
+            PreambleItem::FnDef(fn_def) => {
+                self.write_indent();
+                self.output.push_str("fn ");
+                self.output.push_str(&fn_def.name);
+                self.output.push('(');
+                for (i, param) in fn_def.params.iter().enumerate() {
+                    if i > 0 {
+                        self.output.push_str(", ");
+                    }
+                    self.output.push_str(param);
+                }
+                self.output.push_str(") {\n");
+                self.indent += 1;
+                self.write_indent();
+                self.format_expr(&fn_def.body);
+                self.output.push('\n');
+                self.indent -= 1;
+                self.write_indent();
+                self.output.push_str("}\n");
             }
         }
     }

@@ -2723,8 +2723,6 @@ DEBUG: true
 // =============================================================================
 
 mod unchecked_tests {
-    use super::*;
-
     #[test]
     fn test_unchecked_bypasses_type_check() {
         // Schema validation requires the Compiler
@@ -3573,4 +3571,376 @@ result: for (key, val) in data {
     let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
     let result = parsed["result"].as_array().unwrap();
     assert_eq!(result, &["a=2", "b=4", "c=6"]);
+}
+
+// =============================================================================
+// New builtin function integration tests
+// =============================================================================
+
+#[test]
+fn test_builtin_sort() {
+    let source = r#"
+nums: sort([3, 1, 4, 1, 5, 9])
+strs: sort(["banana", "apple", "cherry"])
+"#;
+    let json = compile_to_json(source).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+    assert_eq!(parsed["nums"], serde_json::json!([1, 1, 3, 4, 5, 9]));
+    assert_eq!(
+        parsed["strs"],
+        serde_json::json!(["apple", "banana", "cherry"])
+    );
+}
+
+#[test]
+fn test_builtin_starts_with_ends_with() {
+    let source = r#"
+sw: starts_with("hello world", "hello")
+ew: ends_with("hello world", "world")
+sw_no: starts_with("hello", "world")
+ew_no: ends_with("hello", "world")
+"#;
+    let json = compile_to_json(source).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+    assert_eq!(parsed["sw"], true);
+    assert_eq!(parsed["ew"], true);
+    assert_eq!(parsed["sw_no"], false);
+    assert_eq!(parsed["ew_no"], false);
+}
+
+#[test]
+fn test_builtin_min_max_abs() {
+    let source = r#"
+mn: min(3, 7)
+mx: max(3, 7)
+ab: abs(-42)
+ab_f: abs(-3.14)
+"#;
+    let json = compile_to_json(source).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+    assert_eq!(parsed["mn"], 3);
+    assert_eq!(parsed["mx"], 7);
+    assert_eq!(parsed["ab"], 42);
+    assert_eq!(parsed["ab_f"], 3.14);
+}
+
+#[test]
+fn test_builtin_unique() {
+    let source = r#"
+result: unique([1, 2, 2, 3, 1, 4, 3])
+"#;
+    let json = compile_to_json(source).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+    assert_eq!(parsed["result"], serde_json::json!([1, 2, 3, 4]));
+}
+
+#[test]
+fn test_builtin_sha256() {
+    let source = r#"
+hash: sha256("hello")
+"#;
+    let json = compile_to_json(source).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+    assert_eq!(
+        parsed["hash"],
+        "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
+    );
+}
+
+#[test]
+fn test_builtin_type_of() {
+    let source = r#"
+ti: type_of(42)
+ts: type_of("hello")
+tb: type_of(true)
+ta: type_of([1, 2])
+to: type_of({ a: 1 })
+tn: type_of(null)
+tf: type_of(3.14)
+"#;
+    let json = compile_to_json(source).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+    assert_eq!(parsed["ti"], "int");
+    assert_eq!(parsed["ts"], "string");
+    assert_eq!(parsed["tb"], "bool");
+    assert_eq!(parsed["ta"], "array");
+    assert_eq!(parsed["to"], "object");
+    assert_eq!(parsed["tn"], "null");
+    assert_eq!(parsed["tf"], "float");
+}
+
+#[test]
+fn test_builtin_substring() {
+    let source = r#"
+full: substring("hello world", 0, 5)
+tail: substring("hello world", 6)
+"#;
+    let json = compile_to_json(source).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+    assert_eq!(parsed["full"], "hello");
+    assert_eq!(parsed["tail"], "world");
+}
+
+#[test]
+fn test_builtin_entries_from_entries() {
+    let source = r#"
+let obj = { a: 1, b: 2 }
+e: entries(obj)
+roundtrip: from_entries(entries(obj))
+"#;
+    let json = compile_to_json(source).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+    assert_eq!(parsed["e"], serde_json::json!([["a", 1], ["b", 2]]));
+    assert_eq!(parsed["roundtrip"], serde_json::json!({"a": 1, "b": 2}));
+}
+
+#[test]
+fn test_builtin_clamp() {
+    let source = r#"
+low: clamp(-5, 0, 10)
+mid: clamp(5, 0, 10)
+high: clamp(15, 0, 10)
+"#;
+    let json = compile_to_json(source).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+    assert_eq!(parsed["low"], 0);
+    assert_eq!(parsed["mid"], 5);
+    assert_eq!(parsed["high"], 10);
+}
+
+#[test]
+fn test_builtin_reverse() {
+    let source = r#"
+arr: reverse([1, 2, 3])
+str: reverse("hello")
+"#;
+    let json = compile_to_json(source).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+    assert_eq!(parsed["arr"], serde_json::json!([3, 2, 1]));
+    assert_eq!(parsed["str"], "olleh");
+}
+
+#[test]
+fn test_builtin_slice() {
+    let source = r#"
+arr: slice([10, 20, 30, 40, 50], 1, 4)
+str: slice("hello world", 0, 5)
+neg: slice([1, 2, 3, 4, 5], -3)
+"#;
+    let json = compile_to_json(source).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+    assert_eq!(parsed["arr"], serde_json::json!([20, 30, 40]));
+    assert_eq!(parsed["str"], "hello");
+    assert_eq!(parsed["neg"], serde_json::json!([3, 4, 5]));
+}
+
+#[test]
+fn test_builtins_composed() {
+    // Test multiple builtins composed together
+    let source = r#"
+let data = [3, 1, 4, 1, 5, 9, 2, 6, 5]
+result: join(for x in sort(unique(data)) { to_str(x) }, ",")
+"#;
+    let json = compile_to_json(source).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+    assert_eq!(parsed["result"], "1,2,3,4,5,6,9");
+}
+
+// =============================================================================
+// User-defined function (fn) integration tests
+// =============================================================================
+
+#[test]
+fn test_fn_basic() {
+    let source = r#"
+fn double(x) { x * 2 }
+
+result: double(21)
+"#;
+    let json = compile_to_json(source).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+    assert_eq!(parsed["result"], 42);
+}
+
+#[test]
+fn test_fn_multiple_params() {
+    let source = r#"
+fn add(a, b) { a + b }
+
+result: add(10, 32)
+"#;
+    let json = compile_to_json(source).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+    assert_eq!(parsed["result"], 42);
+}
+
+#[test]
+fn test_fn_string_operations() {
+    let source = r#"
+fn greet(name) { "Hello, ${name}!" }
+
+result: greet("World")
+"#;
+    let json = compile_to_json(source).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+    assert_eq!(parsed["result"], "Hello, World!");
+}
+
+#[test]
+fn test_fn_calling_builtins() {
+    let source = r#"
+fn shout(text) { upper(text) }
+
+result: shout("hello")
+"#;
+    let json = compile_to_json(source).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+    assert_eq!(parsed["result"], "HELLO");
+}
+
+#[test]
+fn test_fn_calling_other_fn() {
+    let source = r#"
+fn double(x) { x * 2 }
+fn quadruple(x) { double(double(x)) }
+
+result: quadruple(5)
+"#;
+    let json = compile_to_json(source).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+    assert_eq!(parsed["result"], 20);
+}
+
+#[test]
+fn test_fn_used_in_for_loop() {
+    let source = r#"
+fn square(x) { x * x }
+
+result: for i in range(1, 6) { square(i) }
+"#;
+    let json = compile_to_json(source).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+    assert_eq!(parsed["result"], serde_json::json!([1, 4, 9, 16, 25]));
+}
+
+#[test]
+fn test_fn_with_ternary() {
+    let source = r#"
+fn classify(n) { n > 0 ? "positive" : n == 0 ? "zero" : "negative" }
+
+a: classify(5)
+b: classify(0)
+c: classify(-3)
+"#;
+    let json = compile_to_json(source).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+    assert_eq!(parsed["a"], "positive");
+    assert_eq!(parsed["b"], "zero");
+    assert_eq!(parsed["c"], "negative");
+}
+
+#[test]
+fn test_fn_wrong_arity_error() {
+    let source = r#"
+fn add(a, b) { a + b }
+result: add(1)
+"#;
+    let result = compile_to_json(source);
+    assert!(result.is_err(), "wrong arity should be an error");
+}
+
+#[test]
+fn test_fn_no_params() {
+    let source = r#"
+fn answer() { 42 }
+
+result: answer()
+"#;
+    let json = compile_to_json(source).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+    assert_eq!(parsed["result"], 42);
+}
+
+#[test]
+fn test_fn_does_not_leak_scope() {
+    // fn parameters should not be visible outside the function
+    let source = r#"
+fn add_one(x) { x + 1 }
+let x = 100
+a: add_one(5)
+b: x
+"#;
+    let json = compile_to_json(source).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+    assert_eq!(parsed["a"], 6);
+    assert_eq!(parsed["b"], 100);
+}
+
+#[test]
+fn test_fn_overrides_builtin() {
+    // User fn with same name as builtin should take precedence
+    let source = r#"
+fn len(x) { 999 }
+
+result: len("hello")
+"#;
+    let json = compile_to_json(source).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+    assert_eq!(parsed["result"], 999);
+}
+
+#[test]
+fn test_fn_formatting_roundtrip() {
+    let source = "fn double(x) {\n  x * 2\n}\n\nresult: double(21)\n";
+    let formatted = hone::format_source(source).unwrap();
+    // Should parse and re-format without error
+    let re_formatted = hone::format_source(&formatted).unwrap();
+    assert_eq!(formatted, re_formatted, "formatting should be idempotent");
+}
+
+#[test]
+fn test_fn_is_reserved_keyword() {
+    // "fn" as a bare key should fail (it's reserved)
+    let source = r#"
+fn: "some value"
+"#;
+    let result = compile_to_json(source);
+    assert!(result.is_err(), "fn should be reserved as a bare key");
+}
+
+#[test]
+fn test_fn_import_via_named_import() {
+    // Test that fn definitions are exported through named imports
+    let dir = tempfile::tempdir().unwrap();
+
+    let utils = dir.path().join("utils.hone");
+    std::fs::write(
+        &utils,
+        r#"
+fn double(x) { x * 2 }
+fn greet(name) { "Hi, ${name}" }
+let base_port = 8080
+"#,
+    )
+    .unwrap();
+
+    let main = dir.path().join("main.hone");
+    std::fs::write(
+        &main,
+        r#"
+import { double, greet, base_port } from "./utils.hone"
+
+result: double(21)
+greeting: greet("World")
+port: base_port
+"#,
+    )
+    .unwrap();
+
+    let mut compiler = hone::Compiler::new(dir.path());
+    let result = compiler.compile(&main).unwrap();
+    let json_val = result.to_serde_json();
+    assert_eq!(json_val["result"], 42);
+    assert_eq!(json_val["greeting"], "Hi, World");
+    assert_eq!(json_val["port"], 8080);
 }

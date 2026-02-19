@@ -54,6 +54,8 @@ pub enum PreambleItem {
     Secret(SecretDeclaration),
     /// `policy name deny/warn when condition { "message" }`
     Policy(PolicyDeclaration),
+    /// `fn name(params) { body_expr }`
+    FnDef(FnDefinition),
 }
 
 /// Items that can appear in the body
@@ -238,6 +240,18 @@ pub struct SecretDeclaration {
     pub name: String,
     /// Provider string (e.g., "vault:secret/data/db#password" or "env:API_KEY")
     pub provider: String,
+    pub location: SourceLocation,
+}
+
+/// Function definition: `fn name(params) { body }`
+#[derive(Debug, Clone, PartialEq)]
+pub struct FnDefinition {
+    /// Function name
+    pub name: String,
+    /// Parameter names
+    pub params: Vec<String>,
+    /// Function body expression
+    pub body: Expr,
     pub location: SourceLocation,
 }
 

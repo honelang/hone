@@ -78,6 +78,7 @@ pub enum TokenKind {
     Policy,
     Deny,
     Warn,
+    Fn,
     Null,
     True,
     False,
@@ -163,6 +164,7 @@ impl TokenKind {
                 | TokenKind::Policy
                 | TokenKind::Deny
                 | TokenKind::Warn
+                | TokenKind::Fn
                 | TokenKind::Null
                 | TokenKind::True
                 | TokenKind::False
@@ -192,6 +194,7 @@ impl TokenKind {
             "policy" => Some(TokenKind::Policy),
             "deny" => Some(TokenKind::Deny),
             "warn" => Some(TokenKind::Warn),
+            "fn" => Some(TokenKind::Fn),
             "null" => Some(TokenKind::Null),
             "true" => Some(TokenKind::True),
             "false" => Some(TokenKind::False),
@@ -223,6 +226,7 @@ impl fmt::Display for TokenKind {
             TokenKind::Policy => write!(f, "policy"),
             TokenKind::Deny => write!(f, "deny"),
             TokenKind::Warn => write!(f, "warn"),
+            TokenKind::Fn => write!(f, "fn"),
             TokenKind::Null => write!(f, "null"),
             TokenKind::True => write!(f, "true"),
             TokenKind::False => write!(f, "false"),

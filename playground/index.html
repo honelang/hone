@@ -254,6 +254,8 @@
         <option value="interpolation">String Interpolation</option>
         <option value="args">CLI Args (expect)</option>
         <option value="dynamic_keys">Dynamic Keys & Dicts</option>
+        <option value="functions">Functions (fn)</option>
+        <option value="builtins">Built-in Functions</option>
         <option value="mandelbrot">Mandelbrot Set</option>
         <option value="microservices">Microservices (multi-file)</option>
         <option value="ci_pipeline">CI Pipeline (multi-file)</option>
@@ -572,6 +574,214 @@ let endpoint_list = for e in envs {
 }
 endpoint_list: endpoint_list
 # Result: [ {dev: "https://..."}, {staging: "https://..."}, {prod: "https://..."} ]`,
+      functions: `# User-Defined Functions
+# Define reusable logic with fn. Functions are defined in the
+# preamble (top of file) and return a single expression.
+
+# --- All fn definitions go in the preamble ---
+
+# Basic functions
+fn double(x) { x * 2 }
+fn greet(name, title) { "Hello, \${title} \${name}!" }
+fn is_production(env) { env == "production" || env == "prod" }
+
+# Functions that call builtins
+fn slugify(text) { lower(replace(trim(text), " ", "-")) }
+fn shout(text) { upper(text) + "!" }
+fn csv_to_list(csv_string) { split(trim(csv_string), ",") }
+
+# Functions that call other functions
+fn make_label(app, env) { "\${slugify(app)}-\${env}" }
+fn make_fqdn(app, env, domain) { "\${slugify(app)}.\${env}.\${domain}" }
+
+# Functions that return objects
+fn service_url(name, port) { "http://\${name}.internal:\${to_str(port)}" }
+fn resource_spec(cpu_m, mem_mb) {
+  { cpu: "\${to_str(cpu_m)}m", memory: "\${to_str(mem_mb)}Mi" }
+}
+
+# Functions with conditionals
+fn tier(replicas) {
+  replicas >= 5 ? "production" : replicas >= 2 ? "staging" : "development"
+}
+fn clamp_replicas(n, env) {
+  is_production(env) ? max(n, 3) : min(n, 2)
+}
+
+# Kubernetes helpers
+fn k8s_labels(app, component, version) {
+  {
+    "app.kubernetes.io/name": slugify(app),
+    "app.kubernetes.io/component": component,
+    "app.kubernetes.io/version": version,
+    "app.kubernetes.io/managed-by": "hone"
+  }
+}
+fn k8s_selector(app) { { "app.kubernetes.io/name": slugify(app) } }
+
+let service_names = ["auth", "users", "billing", "notifications"]
+
+# --- Body: use the functions ---
+
+basics {
+  doubled: double(21)
+  message: greet("Alice", "Dr.")
+  check: is_production("prod")
+}
+
+string_helpers {
+  slug: slugify("  My Cool App  ")
+  loud: shout("hello world")
+  parsed: csv_to_list("a,b,c,d")
+}
+
+composition {
+  label: make_label("My Service", "prod")
+  fqdn: make_fqdn("My Service", "staging", "example.com")
+}
+
+# Functions in loops
+services: for (i, name) in service_names {
+  "\${name}": {
+    url: service_url(name, 8000 + i),
+    resources: resource_spec((i + 1) * 100, (i + 1) * 128)
+  }
+}
+
+scaling {
+  tier_1: tier(1)
+  tier_3: tier(3)
+  tier_10: tier(10)
+  prod_replicas: clamp_replicas(1, "production")
+  dev_replicas: clamp_replicas(10, "dev")
+}
+
+# Real-world: Kubernetes label generator
+deployment {
+  metadata {
+    labels: k8s_labels("My App", "api", "2.1.0")
+  }
+  spec {
+    selector {
+      matchLabels: k8s_selector("My App")
+    }
+  }
+}`,
+      builtins: `# Built-in Functions Showcase
+# Hone ships with 40 built-in functions for strings, arrays,
+# objects, math, encoding, and type conversion.
+
+# All variables go in the preamble
+let numbers = [3, 1, 4, 1, 5, 9, 2, 6, 5, 3, 5]
+let config = { host: "localhost", port: 8080, debug: true }
+let upper_pairs = for (key, val) in config { [upper(key), val] }
+let maybe_null = null
+let has_value = "present"
+let environments = ["dev", "staging", "production"]
+let base_port = 8000
+let raw_tags = ["web", "api", "web", "backend", "api", "frontend"]
+let port_entries = for (i, env) in environments { [env, { port: base_port + i, name: upper(env), id: substring(sha256(env), 0, 8) }] }
+
+# --- String Functions ---
+
+strings {
+  upper: upper("hello")
+  lower: lower("WORLD")
+  trimmed: trim("  padded  ")
+  parts: split("a,b,c", ",")
+  joined: join(["x", "y", "z"], "-")
+  replaced: replace("foo-bar-baz", "-", "_")
+  has_prefix: starts_with("hello world", "hello")
+  has_suffix: ends_with("config.yaml", ".yaml")
+  sub: substring("abcdefgh", 2, 5)
+  length: len("unicode")
+}
+
+# --- Array Functions ---
+
+arrays {
+  sorted: sort(numbers)
+  reversed: reverse(numbers)
+  no_dupes: unique(numbers)
+  first_three: slice(numbers, 0, 3)
+  last_three: slice(numbers, -3)
+  combined: concat([1, 2], [3, 4], [5])
+  flattened: flatten([[1, 2], [3, [4, 5]]])
+  has_five: contains(numbers, 5)
+  count: len(numbers)
+}
+
+# --- Object Functions ---
+
+objects {
+  all_keys: keys(config)
+  all_values: values(config)
+  merged: merge(config, { port: 9090, tls: true })
+  pairs: entries(config)
+  roundtrip: from_entries(entries(config))
+  uppercased: from_entries(upper_pairs)
+}
+
+# --- Math Functions ---
+
+math {
+  minimum: min(42, 17)
+  maximum: max(42, 17)
+  absolute: abs(-99)
+  clamped_low: clamp(-5, 0, 100)
+  clamped_high: clamp(999, 0, 100)
+  clamped_ok: clamp(50, 0, 100)
+  integers: range(1, 6)
+}
+
+# --- Type Functions ---
+
+types {
+  int_type: type_of(42)
+  float_type: type_of(3.14)
+  string_type: type_of("hi")
+  bool_type: type_of(true)
+  null_type: type_of(null)
+  array_type: type_of([1, 2])
+  object_type: type_of({a: 1})
+}
+
+# --- Conversion Functions ---
+
+conversions {
+  to_string: to_str(42)
+  to_integer: to_int("99")
+  to_floating: to_float("3.14")
+  to_boolean: to_bool(1)
+  bool_false: to_bool(0)
+  bool_empty: to_bool("")
+}
+
+# --- Encoding Functions ---
+
+encoding {
+  b64_encoded: base64_encode("Hello, World!")
+  b64_decoded: base64_decode("SGVsbG8sIFdvcmxkIQ==")
+  json_string: to_json({ nested: { value: [1, 2, 3] } })
+  from_string: from_json("{\\"x\\": 42}")
+  hashed: sha256("deterministic-input")
+}
+
+# --- Null Handling ---
+
+null_handling {
+  with_default: default(maybe_null, "fallback")
+  not_needed: default(has_value, "fallback")
+  coalesce: maybe_null ?? "also works"
+}
+
+# --- Composed: Real-World Patterns ---
+
+# Generate a port mapping with unique hashes for identification
+port_map: from_entries(port_entries)
+
+# Filter-like pattern: unique sorted tags
+clean_tags: sort(unique(raw_tags))`,
     };
 
     // Multi-file examples: { files: { name: source }, entry: name }
@@ -1687,13 +1897,16 @@ let enable_service = {
         keywords: [
           'let', 'when', 'else', 'for', 'in', 'import', 'from', 'as',
           'schema', 'variant', 'assert', 'expect', 'secret', 'policy',
-          'use', 'type', 'deny', 'warn', 'default', 'extends',
+          'use', 'type', 'deny', 'warn', 'default', 'extends', 'fn',
         ],
         builtins: [
           'len', 'keys', 'values', 'contains', 'concat', 'merge', 'flatten',
           'upper', 'lower', 'trim', 'split', 'join', 'replace', 'range',
           'base64_encode', 'base64_decode', 'to_json', 'from_json',
           'to_str', 'to_int', 'to_float', 'to_bool', 'env', 'file',
+          'sort', 'reverse', 'unique', 'slice', 'min', 'max', 'abs',
+          'clamp', 'starts_with', 'ends_with', 'substring', 'type_of',
+          'entries', 'from_entries', 'sha256', 'default',
         ],
         constants: ['true', 'false', 'null'],
         operators: [

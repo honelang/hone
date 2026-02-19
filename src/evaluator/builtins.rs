@@ -5,6 +5,7 @@
 
 use base64::Engine;
 use indexmap::IndexMap;
+use sha2::{Digest, Sha256};
 
 use crate::errors::{HoneError, HoneResult};
 use crate::lexer::token::SourceLocation;
@@ -53,6 +54,24 @@ pub fn call_builtin(
         "from_json" => builtin_from_json(args, location, source),
         "env" => builtin_env(args, location, source),
         "file" => builtin_file(args, location, source),
+        // P0: core missing builtins
+        "sort" => builtin_sort(args, location, source),
+        "starts_with" => builtin_starts_with(args, location, source),
+        "ends_with" => builtin_ends_with(args, location, source),
+        "min" => builtin_min(args, location, source),
+        "max" => builtin_max(args, location, source),
+        "abs" => builtin_abs(args, location, source),
+        // P1: important utilities
+        "unique" => builtin_unique(args, location, source),
+        "sha256" => builtin_sha256(args, location, source),
+        "type_of" => builtin_type_of(args, location, source),
+        "substring" => builtin_substring(args, location, source),
+        // P2: object/array manipulation
+        "entries" => builtin_entries(args, location, source),
+        "from_entries" => builtin_from_entries(args, location, source),
+        "clamp" => builtin_clamp(args, location, source),
+        "reverse" => builtin_reverse(args, location, source),
+        "slice" => builtin_slice(args, location, source),
         _ => Err(HoneError::undefined_variable(
             source.to_string(),
             location,
@@ -94,6 +113,21 @@ pub fn is_builtin(name: &str) -> bool {
             | "from_json"
             | "env"
             | "file"
+            | "sort"
+            | "starts_with"
+            | "ends_with"
+            | "min"
+            | "max"
+            | "abs"
+            | "unique"
+            | "sha256"
+            | "type_of"
+            | "substring"
+            | "entries"
+            | "from_entries"
+            | "clamp"
+            | "reverse"
+            | "slice"
     )
 }
 
@@ -701,6 +735,364 @@ fn builtin_file(args: Vec<Value>, location: &SourceLocation, source: &str) -> Ho
     Ok(Value::String(contents))
 }
 
+// ── P0 builtins ────────────────────────────────────────────────────────
+
+/// sort(array) -> array (ascending, stable)
+fn builtin_sort(args: Vec<Value>, location: &SourceLocation, source: &str) -> HoneResult<Value> {
+    check_arity("sort", &args, 1, location, source)?;
+    match &args[0] {
+        Value::Array(arr) => {
+            let mut sorted = arr.clone();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+            Ok(Value::Array(sorted))
+        }
+        other => Err(type_error(
+            "sort",
+            "array",
+            other.type_name(),
+            location,
+            source,
+        )),
+    }
+}
+
+/// starts_with(string, prefix) -> bool
+fn builtin_starts_with(
+    args: Vec<Value>,
+    location: &SourceLocation,
+    source: &str,
+) -> HoneResult<Value> {
+    check_arity("starts_with", &args, 2, location, source)?;
+    let s = expect_string("starts_with", &args[0], location, source)?;
+    let prefix = expect_string("starts_with", &args[1], location, source)?;
+    Ok(Value::Bool(s.starts_with(prefix)))
+}
+
+/// ends_with(string, suffix) -> bool
+fn builtin_ends_with(
+    args: Vec<Value>,
+    location: &SourceLocation,
+    source: &str,
+) -> HoneResult<Value> {
+    check_arity("ends_with", &args, 2, location, source)?;
+    let s = expect_string("ends_with", &args[0], location, source)?;
+    let suffix = expect_string("ends_with", &args[1], location, source)?;
+    Ok(Value::Bool(s.ends_with(suffix)))
+}
+
+/// min(a, b) -> number
+fn builtin_min(args: Vec<Value>, location: &SourceLocation, source: &str) -> HoneResult<Value> {
+    check_arity("min", &args, 2, location, source)?;
+    match (&args[0], &args[1]) {
+        (Value::Int(a), Value::Int(b)) => Ok(Value::Int(*a.min(b))),
+        (Value::Float(a), Value::Float(b)) => Ok(Value::Float(a.min(*b))),
+        (Value::Int(a), Value::Float(b)) => Ok(Value::Float((*a as f64).min(*b))),
+        (Value::Float(a), Value::Int(b)) => Ok(Value::Float(a.min(*b as f64))),
+        _ => Err(type_error(
+            "min",
+            "two numbers",
+            &format!("{}, {}", args[0].type_name(), args[1].type_name()),
+            location,
+            source,
+        )),
+    }
+}
+
+/// max(a, b) -> number
+fn builtin_max(args: Vec<Value>, location: &SourceLocation, source: &str) -> HoneResult<Value> {
+    check_arity("max", &args, 2, location, source)?;
+    match (&args[0], &args[1]) {
+        (Value::Int(a), Value::Int(b)) => Ok(Value::Int(*a.max(b))),
+        (Value::Float(a), Value::Float(b)) => Ok(Value::Float(a.max(*b))),
+        (Value::Int(a), Value::Float(b)) => Ok(Value::Float((*a as f64).max(*b))),
+        (Value::Float(a), Value::Int(b)) => Ok(Value::Float(a.max(*b as f64))),
+        _ => Err(type_error(
+            "max",
+            "two numbers",
+            &format!("{}, {}", args[0].type_name(), args[1].type_name()),
+            location,
+            source,
+        )),
+    }
+}
+
+/// abs(number) -> number
+fn builtin_abs(args: Vec<Value>, location: &SourceLocation, source: &str) -> HoneResult<Value> {
+    check_arity("abs", &args, 1, location, source)?;
+    match &args[0] {
+        Value::Int(n) => Ok(Value::Int(n.abs())),
+        Value::Float(n) => Ok(Value::Float(n.abs())),
+        other => Err(type_error(
+            "abs",
+            "number",
+            other.type_name(),
+            location,
+            source,
+        )),
+    }
+}
+
+// ── P1 builtins ────────────────────────────────────────────────────────
+
+/// unique(array) -> array (preserves first occurrence order)
+fn builtin_unique(args: Vec<Value>, location: &SourceLocation, source: &str) -> HoneResult<Value> {
+    check_arity("unique", &args, 1, location, source)?;
+    match &args[0] {
+        Value::Array(arr) => {
+            let mut seen = Vec::new();
+            let mut result = Vec::new();
+            for item in arr {
+                let json_key = format!("{}", item);
+                if !seen.contains(&json_key) {
+                    seen.push(json_key);
+                    result.push(item.clone());
+                }
+            }
+            Ok(Value::Array(result))
+        }
+        other => Err(type_error(
+            "unique",
+            "array",
+            other.type_name(),
+            location,
+            source,
+        )),
+    }
+}
+
+/// sha256(string) -> string (hex digest)
+fn builtin_sha256(args: Vec<Value>, location: &SourceLocation, source: &str) -> HoneResult<Value> {
+    check_arity("sha256", &args, 1, location, source)?;
+    let s = expect_string("sha256", &args[0], location, source)?;
+    let mut hasher = Sha256::new();
+    hasher.update(s.as_bytes());
+    let result = hasher.finalize();
+    Ok(Value::String(format!("{:x}", result)))
+}
+
+/// type_of(value) -> string
+fn builtin_type_of(
+    args: Vec<Value>,
+    location: &SourceLocation,
+    source: &str,
+) -> HoneResult<Value> {
+    check_arity("type_of", &args, 1, location, source)?;
+    Ok(Value::String(args[0].type_name().to_string()))
+}
+
+/// substring(string, start, end?) -> string
+fn builtin_substring(
+    args: Vec<Value>,
+    location: &SourceLocation,
+    source: &str,
+) -> HoneResult<Value> {
+    if args.len() < 2 || args.len() > 3 {
+        return Err(arity_error(
+            "substring",
+            "2 or 3",
+            args.len(),
+            location,
+            source,
+        ));
+    }
+    let s = expect_string("substring", &args[0], location, source)?;
+    let start = expect_int("substring", &args[1], location, source)? as usize;
+    let chars: Vec<char> = s.chars().collect();
+    let end = if args.len() == 3 {
+        expect_int("substring", &args[2], location, source)? as usize
+    } else {
+        chars.len()
+    };
+    let start = start.min(chars.len());
+    let end = end.min(chars.len());
+    if start > end {
+        return Ok(Value::String(String::new()));
+    }
+    Ok(Value::String(chars[start..end].iter().collect()))
+}
+
+// ── P2 builtins ────────────────────────────────────────────────────────
+
+/// entries(object) -> [[key, value], ...]
+fn builtin_entries(
+    args: Vec<Value>,
+    location: &SourceLocation,
+    source: &str,
+) -> HoneResult<Value> {
+    check_arity("entries", &args, 1, location, source)?;
+    match &args[0] {
+        Value::Object(obj) => {
+            let result: Vec<Value> = obj
+                .iter()
+                .map(|(k, v)| Value::Array(vec![Value::String(k.clone()), v.clone()]))
+                .collect();
+            Ok(Value::Array(result))
+        }
+        other => Err(type_error(
+            "entries",
+            "object",
+            other.type_name(),
+            location,
+            source,
+        )),
+    }
+}
+
+/// from_entries([[key, value], ...]) -> object
+fn builtin_from_entries(
+    args: Vec<Value>,
+    location: &SourceLocation,
+    source: &str,
+) -> HoneResult<Value> {
+    check_arity("from_entries", &args, 1, location, source)?;
+    match &args[0] {
+        Value::Array(arr) => {
+            let mut obj = IndexMap::new();
+            for item in arr {
+                match item {
+                    Value::Array(pair) if pair.len() == 2 => {
+                        if let Value::String(key) = &pair[0] {
+                            obj.insert(key.clone(), pair[1].clone());
+                        } else {
+                            return Err(type_error(
+                                "from_entries",
+                                "string key in [key, value] pair",
+                                pair[0].type_name(),
+                                location,
+                                source,
+                            ));
+                        }
+                    }
+                    _ => {
+                        return Err(type_error(
+                            "from_entries",
+                            "[key, value] pair (2-element array)",
+                            item.type_name(),
+                            location,
+                            source,
+                        ))
+                    }
+                }
+            }
+            Ok(Value::Object(obj))
+        }
+        other => Err(type_error(
+            "from_entries",
+            "array of [key, value] pairs",
+            other.type_name(),
+            location,
+            source,
+        )),
+    }
+}
+
+/// clamp(value, min, max) -> number
+fn builtin_clamp(args: Vec<Value>, location: &SourceLocation, source: &str) -> HoneResult<Value> {
+    check_arity("clamp", &args, 3, location, source)?;
+    match (&args[0], &args[1], &args[2]) {
+        (Value::Int(v), Value::Int(lo), Value::Int(hi)) => Ok(Value::Int(*v.max(lo).min(hi))),
+        _ => {
+            let v = expect_float_coerce("clamp", &args[0], location, source)?;
+            let lo = expect_float_coerce("clamp", &args[1], location, source)?;
+            let hi = expect_float_coerce("clamp", &args[2], location, source)?;
+            Ok(Value::Float(v.max(lo).min(hi)))
+        }
+    }
+}
+
+/// reverse(array) -> array
+fn builtin_reverse(
+    args: Vec<Value>,
+    location: &SourceLocation,
+    source: &str,
+) -> HoneResult<Value> {
+    check_arity("reverse", &args, 1, location, source)?;
+    match &args[0] {
+        Value::Array(arr) => {
+            let mut result = arr.clone();
+            result.reverse();
+            Ok(Value::Array(result))
+        }
+        Value::String(s) => Ok(Value::String(s.chars().rev().collect())),
+        other => Err(type_error(
+            "reverse",
+            "array or string",
+            other.type_name(),
+            location,
+            source,
+        )),
+    }
+}
+
+/// slice(array, start, end?) -> array, slice(string, start, end?) -> string
+fn builtin_slice(args: Vec<Value>, location: &SourceLocation, source: &str) -> HoneResult<Value> {
+    if args.len() < 2 || args.len() > 3 {
+        return Err(arity_error(
+            "slice",
+            "2 or 3",
+            args.len(),
+            location,
+            source,
+        ));
+    }
+    let start = expect_int("slice", &args[1], location, source)?;
+    match &args[0] {
+        Value::Array(arr) => {
+            let len = arr.len() as i64;
+            let start = normalize_index(start, len) as usize;
+            let end = if args.len() == 3 {
+                normalize_index(
+                    expect_int("slice", &args[2], location, source)?,
+                    len,
+                ) as usize
+            } else {
+                len as usize
+            };
+            let start = start.min(arr.len());
+            let end = end.min(arr.len());
+            if start >= end {
+                return Ok(Value::Array(vec![]));
+            }
+            Ok(Value::Array(arr[start..end].to_vec()))
+        }
+        Value::String(s) => {
+            let chars: Vec<char> = s.chars().collect();
+            let len = chars.len() as i64;
+            let start = normalize_index(start, len) as usize;
+            let end = if args.len() == 3 {
+                normalize_index(
+                    expect_int("slice", &args[2], location, source)?,
+                    len,
+                ) as usize
+            } else {
+                len as usize
+            };
+            let start = start.min(chars.len());
+            let end = end.min(chars.len());
+            if start >= end {
+                return Ok(Value::String(String::new()));
+            }
+            Ok(Value::String(chars[start..end].iter().collect()))
+        }
+        other => Err(type_error(
+            "slice",
+            "array or string",
+            other.type_name(),
+            location,
+            source,
+        )),
+    }
+}
+
+/// Normalize a possibly-negative index: negative counts from end
+fn normalize_index(idx: i64, len: i64) -> i64 {
+    if idx < 0 {
+        (len + idx).max(0)
+    } else {
+        idx.min(len)
+    }
+}
+
 // Helper functions
 
 fn check_arity(
@@ -764,6 +1156,25 @@ fn expect_int(
     match value {
         Value::Int(n) => Ok(*n),
         other => Err(type_error(name, "int", other.type_name(), location, source)),
+    }
+}
+
+fn expect_float_coerce(
+    name: &str,
+    value: &Value,
+    location: &SourceLocation,
+    source: &str,
+) -> HoneResult<f64> {
+    match value {
+        Value::Int(n) => Ok(*n as f64),
+        Value::Float(n) => Ok(*n),
+        other => Err(type_error(
+            name,
+            "number",
+            other.type_name(),
+            location,
+            source,
+        )),
     }
 }
 
@@ -1379,10 +1790,501 @@ mod tests {
         assert!(is_builtin("from_json"));
         assert!(is_builtin("env"));
         assert!(is_builtin("file"));
+        // New builtins
+        assert!(is_builtin("sort"));
+        assert!(is_builtin("starts_with"));
+        assert!(is_builtin("ends_with"));
+        assert!(is_builtin("min"));
+        assert!(is_builtin("max"));
+        assert!(is_builtin("abs"));
+        assert!(is_builtin("unique"));
+        assert!(is_builtin("sha256"));
+        assert!(is_builtin("type_of"));
+        assert!(is_builtin("substring"));
+        assert!(is_builtin("entries"));
+        assert!(is_builtin("from_entries"));
+        assert!(is_builtin("clamp"));
+        assert!(is_builtin("reverse"));
+        assert!(is_builtin("slice"));
         // Removed builtins
         assert!(!is_builtin("map"));
         assert!(!is_builtin("filter"));
         assert!(!is_builtin("reduce"));
         assert!(!is_builtin("nonexistent"));
+    }
+
+    // ── P0 builtin tests ──────────────────────────────────────────────
+
+    #[test]
+    fn test_sort_integers() {
+        let arr = Value::Array(vec![Value::Int(3), Value::Int(1), Value::Int(2)]);
+        let result = call_builtin("sort", vec![arr], &loc(), "").unwrap();
+        assert_eq!(
+            result,
+            Value::Array(vec![Value::Int(1), Value::Int(2), Value::Int(3)])
+        );
+    }
+
+    #[test]
+    fn test_sort_strings() {
+        let arr = Value::Array(vec![
+            Value::String("banana".into()),
+            Value::String("apple".into()),
+            Value::String("cherry".into()),
+        ]);
+        let result = call_builtin("sort", vec![arr], &loc(), "").unwrap();
+        assert_eq!(
+            result,
+            Value::Array(vec![
+                Value::String("apple".into()),
+                Value::String("banana".into()),
+                Value::String("cherry".into()),
+            ])
+        );
+    }
+
+    #[test]
+    fn test_sort_empty() {
+        let result = call_builtin("sort", vec![Value::Array(vec![])], &loc(), "").unwrap();
+        assert_eq!(result, Value::Array(vec![]));
+    }
+
+    #[test]
+    fn test_sort_rejects_non_array() {
+        assert!(call_builtin("sort", vec![Value::Int(1)], &loc(), "").is_err());
+    }
+
+    #[test]
+    fn test_starts_with() {
+        assert_eq!(
+            call_builtin(
+                "starts_with",
+                vec![
+                    Value::String("hello world".into()),
+                    Value::String("hello".into())
+                ],
+                &loc(),
+                ""
+            )
+            .unwrap(),
+            Value::Bool(true)
+        );
+        assert_eq!(
+            call_builtin(
+                "starts_with",
+                vec![
+                    Value::String("hello".into()),
+                    Value::String("world".into())
+                ],
+                &loc(),
+                ""
+            )
+            .unwrap(),
+            Value::Bool(false)
+        );
+        assert_eq!(
+            call_builtin(
+                "starts_with",
+                vec![Value::String("".into()), Value::String("".into())],
+                &loc(),
+                ""
+            )
+            .unwrap(),
+            Value::Bool(true)
+        );
+    }
+
+    #[test]
+    fn test_ends_with() {
+        assert_eq!(
+            call_builtin(
+                "ends_with",
+                vec![
+                    Value::String("hello.yaml".into()),
+                    Value::String(".yaml".into())
+                ],
+                &loc(),
+                ""
+            )
+            .unwrap(),
+            Value::Bool(true)
+        );
+        assert_eq!(
+            call_builtin(
+                "ends_with",
+                vec![
+                    Value::String("hello.yaml".into()),
+                    Value::String(".json".into())
+                ],
+                &loc(),
+                ""
+            )
+            .unwrap(),
+            Value::Bool(false)
+        );
+    }
+
+    #[test]
+    fn test_min() {
+        assert_eq!(
+            call_builtin("min", vec![Value::Int(3), Value::Int(1)], &loc(), "").unwrap(),
+            Value::Int(1)
+        );
+        assert_eq!(
+            call_builtin("min", vec![Value::Float(3.5), Value::Float(1.2)], &loc(), "").unwrap(),
+            Value::Float(1.2)
+        );
+        assert_eq!(
+            call_builtin("min", vec![Value::Int(3), Value::Float(1.5)], &loc(), "").unwrap(),
+            Value::Float(1.5)
+        );
+    }
+
+    #[test]
+    fn test_max() {
+        assert_eq!(
+            call_builtin("max", vec![Value::Int(3), Value::Int(1)], &loc(), "").unwrap(),
+            Value::Int(3)
+        );
+        assert_eq!(
+            call_builtin("max", vec![Value::Float(3.5), Value::Float(1.2)], &loc(), "").unwrap(),
+            Value::Float(3.5)
+        );
+    }
+
+    #[test]
+    fn test_min_max_reject_non_numbers() {
+        assert!(call_builtin(
+            "min",
+            vec![Value::String("a".into()), Value::String("b".into())],
+            &loc(),
+            ""
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn test_abs() {
+        assert_eq!(
+            call_builtin("abs", vec![Value::Int(-5)], &loc(), "").unwrap(),
+            Value::Int(5)
+        );
+        assert_eq!(
+            call_builtin("abs", vec![Value::Int(5)], &loc(), "").unwrap(),
+            Value::Int(5)
+        );
+        assert_eq!(
+            call_builtin("abs", vec![Value::Float(-3.14)], &loc(), "").unwrap(),
+            Value::Float(3.14)
+        );
+        assert!(call_builtin("abs", vec![Value::String("x".into())], &loc(), "").is_err());
+    }
+
+    // ── P1 builtin tests ──────────────────────────────────────────────
+
+    #[test]
+    fn test_unique() {
+        let arr = Value::Array(vec![
+            Value::Int(1),
+            Value::Int(2),
+            Value::Int(1),
+            Value::Int(3),
+            Value::Int(2),
+        ]);
+        let result = call_builtin("unique", vec![arr], &loc(), "").unwrap();
+        assert_eq!(
+            result,
+            Value::Array(vec![Value::Int(1), Value::Int(2), Value::Int(3)])
+        );
+    }
+
+    #[test]
+    fn test_unique_strings() {
+        let arr = Value::Array(vec![
+            Value::String("a".into()),
+            Value::String("b".into()),
+            Value::String("a".into()),
+        ]);
+        let result = call_builtin("unique", vec![arr], &loc(), "").unwrap();
+        assert_eq!(
+            result,
+            Value::Array(vec![
+                Value::String("a".into()),
+                Value::String("b".into()),
+            ])
+        );
+    }
+
+    #[test]
+    fn test_unique_preserves_order() {
+        let arr = Value::Array(vec![
+            Value::Int(3),
+            Value::Int(1),
+            Value::Int(3),
+            Value::Int(2),
+        ]);
+        let result = call_builtin("unique", vec![arr], &loc(), "").unwrap();
+        assert_eq!(
+            result,
+            Value::Array(vec![Value::Int(3), Value::Int(1), Value::Int(2)])
+        );
+    }
+
+    #[test]
+    fn test_sha256() {
+        let result = call_builtin("sha256", vec![Value::String("hello".into())], &loc(), "").unwrap();
+        assert_eq!(
+            result,
+            Value::String("2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824".into())
+        );
+    }
+
+    #[test]
+    fn test_sha256_empty() {
+        let result = call_builtin("sha256", vec![Value::String("".into())], &loc(), "").unwrap();
+        assert_eq!(
+            result,
+            Value::String("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855".into())
+        );
+    }
+
+    #[test]
+    fn test_type_of() {
+        assert_eq!(
+            call_builtin("type_of", vec![Value::Null], &loc(), "").unwrap(),
+            Value::String("null".into())
+        );
+        assert_eq!(
+            call_builtin("type_of", vec![Value::Int(1)], &loc(), "").unwrap(),
+            Value::String("int".into())
+        );
+        assert_eq!(
+            call_builtin("type_of", vec![Value::Float(1.0)], &loc(), "").unwrap(),
+            Value::String("float".into())
+        );
+        assert_eq!(
+            call_builtin("type_of", vec![Value::String("x".into())], &loc(), "").unwrap(),
+            Value::String("string".into())
+        );
+        assert_eq!(
+            call_builtin("type_of", vec![Value::Bool(true)], &loc(), "").unwrap(),
+            Value::String("bool".into())
+        );
+        assert_eq!(
+            call_builtin("type_of", vec![Value::Array(vec![])], &loc(), "").unwrap(),
+            Value::String("array".into())
+        );
+        assert_eq!(
+            call_builtin("type_of", vec![Value::Object(IndexMap::new())], &loc(), "").unwrap(),
+            Value::String("object".into())
+        );
+    }
+
+    #[test]
+    fn test_substring() {
+        assert_eq!(
+            call_builtin(
+                "substring",
+                vec![Value::String("hello world".into()), Value::Int(0), Value::Int(5)],
+                &loc(),
+                ""
+            )
+            .unwrap(),
+            Value::String("hello".into())
+        );
+        assert_eq!(
+            call_builtin(
+                "substring",
+                vec![Value::String("hello".into()), Value::Int(2)],
+                &loc(),
+                ""
+            )
+            .unwrap(),
+            Value::String("llo".into())
+        );
+        // Out of bounds clamps
+        assert_eq!(
+            call_builtin(
+                "substring",
+                vec![Value::String("hi".into()), Value::Int(0), Value::Int(100)],
+                &loc(),
+                ""
+            )
+            .unwrap(),
+            Value::String("hi".into())
+        );
+        // Start > end gives empty
+        assert_eq!(
+            call_builtin(
+                "substring",
+                vec![Value::String("hi".into()), Value::Int(5), Value::Int(2)],
+                &loc(),
+                ""
+            )
+            .unwrap(),
+            Value::String("".into())
+        );
+    }
+
+    // ── P2 builtin tests ──────────────────────────────────────────────
+
+    #[test]
+    fn test_entries() {
+        let mut obj = IndexMap::new();
+        obj.insert("a".to_string(), Value::Int(1));
+        obj.insert("b".to_string(), Value::Int(2));
+        let result = call_builtin("entries", vec![Value::Object(obj)], &loc(), "").unwrap();
+        assert_eq!(
+            result,
+            Value::Array(vec![
+                Value::Array(vec![Value::String("a".into()), Value::Int(1)]),
+                Value::Array(vec![Value::String("b".into()), Value::Int(2)]),
+            ])
+        );
+    }
+
+    #[test]
+    fn test_from_entries() {
+        let pairs = Value::Array(vec![
+            Value::Array(vec![Value::String("x".into()), Value::Int(10)]),
+            Value::Array(vec![Value::String("y".into()), Value::Int(20)]),
+        ]);
+        let result = call_builtin("from_entries", vec![pairs], &loc(), "").unwrap();
+        let mut expected = IndexMap::new();
+        expected.insert("x".to_string(), Value::Int(10));
+        expected.insert("y".to_string(), Value::Int(20));
+        assert_eq!(result, Value::Object(expected));
+    }
+
+    #[test]
+    fn test_entries_from_entries_roundtrip() {
+        let mut obj = IndexMap::new();
+        obj.insert("name".to_string(), Value::String("test".into()));
+        obj.insert("port".to_string(), Value::Int(8080));
+        let original = Value::Object(obj);
+        let entries = call_builtin("entries", vec![original.clone()], &loc(), "").unwrap();
+        let restored = call_builtin("from_entries", vec![entries], &loc(), "").unwrap();
+        assert_eq!(restored, original);
+    }
+
+    #[test]
+    fn test_from_entries_rejects_bad_pairs() {
+        let bad = Value::Array(vec![Value::Int(1)]);
+        assert!(call_builtin("from_entries", vec![bad], &loc(), "").is_err());
+    }
+
+    #[test]
+    fn test_clamp_int() {
+        assert_eq!(
+            call_builtin(
+                "clamp",
+                vec![Value::Int(5), Value::Int(1), Value::Int(10)],
+                &loc(),
+                ""
+            )
+            .unwrap(),
+            Value::Int(5)
+        );
+        assert_eq!(
+            call_builtin(
+                "clamp",
+                vec![Value::Int(-5), Value::Int(0), Value::Int(10)],
+                &loc(),
+                ""
+            )
+            .unwrap(),
+            Value::Int(0)
+        );
+        assert_eq!(
+            call_builtin(
+                "clamp",
+                vec![Value::Int(100), Value::Int(0), Value::Int(10)],
+                &loc(),
+                ""
+            )
+            .unwrap(),
+            Value::Int(10)
+        );
+    }
+
+    #[test]
+    fn test_clamp_float() {
+        assert_eq!(
+            call_builtin(
+                "clamp",
+                vec![Value::Float(3.14), Value::Float(0.0), Value::Float(1.0)],
+                &loc(),
+                ""
+            )
+            .unwrap(),
+            Value::Float(1.0)
+        );
+    }
+
+    #[test]
+    fn test_reverse_array() {
+        let arr = Value::Array(vec![Value::Int(1), Value::Int(2), Value::Int(3)]);
+        let result = call_builtin("reverse", vec![arr], &loc(), "").unwrap();
+        assert_eq!(
+            result,
+            Value::Array(vec![Value::Int(3), Value::Int(2), Value::Int(1)])
+        );
+    }
+
+    #[test]
+    fn test_reverse_string() {
+        assert_eq!(
+            call_builtin("reverse", vec![Value::String("hello".into())], &loc(), "").unwrap(),
+            Value::String("olleh".into())
+        );
+    }
+
+    #[test]
+    fn test_slice_array() {
+        let arr = Value::Array(vec![
+            Value::Int(10),
+            Value::Int(20),
+            Value::Int(30),
+            Value::Int(40),
+            Value::Int(50),
+        ]);
+        assert_eq!(
+            call_builtin("slice", vec![arr.clone(), Value::Int(1), Value::Int(3)], &loc(), "")
+                .unwrap(),
+            Value::Array(vec![Value::Int(20), Value::Int(30)])
+        );
+        // Without end
+        assert_eq!(
+            call_builtin("slice", vec![arr.clone(), Value::Int(3)], &loc(), "").unwrap(),
+            Value::Array(vec![Value::Int(40), Value::Int(50)])
+        );
+        // Negative index
+        assert_eq!(
+            call_builtin("slice", vec![arr, Value::Int(-2)], &loc(), "").unwrap(),
+            Value::Array(vec![Value::Int(40), Value::Int(50)])
+        );
+    }
+
+    #[test]
+    fn test_slice_string() {
+        assert_eq!(
+            call_builtin(
+                "slice",
+                vec![Value::String("hello".into()), Value::Int(1), Value::Int(4)],
+                &loc(),
+                ""
+            )
+            .unwrap(),
+            Value::String("ell".into())
+        );
+    }
+
+    #[test]
+    fn test_slice_empty_range() {
+        let arr = Value::Array(vec![Value::Int(1), Value::Int(2)]);
+        assert_eq!(
+            call_builtin("slice", vec![arr, Value::Int(5), Value::Int(3)], &loc(), "").unwrap(),
+            Value::Array(vec![])
+        );
     }
 }
