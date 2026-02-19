@@ -1169,11 +1169,7 @@ impl Evaluator {
                 return Err(HoneError::TypeMismatch {
                     src: self.source.clone(),
                     span: (call.location.offset, call.location.length).into(),
-                    expected: format!(
-                        "{} argument(s) for fn {}",
-                        user_fn.params.len(),
-                        func_name
-                    ),
+                    expected: format!("{} argument(s) for fn {}", user_fn.params.len(), func_name),
                     found: format!("{} argument(s)", args.len()),
                     help: format!(
                         "fn {}({}) takes exactly {} argument(s)",

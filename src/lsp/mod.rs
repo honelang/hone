@@ -236,11 +236,7 @@ impl HoneLanguageServer {
             ),
             ("deny", "Policy deny level", "deny"),
             ("warn", "Policy warn level", "warn"),
-            (
-                "fn",
-                "Function definition",
-                "fn $1($2) {\n\t$3\n}",
-            ),
+            ("fn", "Function definition", "fn $1($2) {\n\t$3\n}"),
         ];
 
         for (keyword, detail, snippet) in keywords {
@@ -307,7 +303,11 @@ impl HoneLanguageServer {
                 "Extract substring by index",
                 "substring($1, $2, $3)",
             ),
-            ("entries", "Object to [[key, value], ...] array", "entries($1)"),
+            (
+                "entries",
+                "Object to [[key, value], ...] array",
+                "entries($1)",
+            ),
             (
                 "from_entries",
                 "[[key, value], ...] array to object",
