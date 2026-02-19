@@ -333,6 +333,40 @@ TypeMismatch: expected int(1, 65535), found int (value: 99999)
   help: value 99999 is greater than maximum 65535
 ```
 
+#### Kubernetes Schema Library
+
+Hone ships with a pre-built schema library for common Kubernetes resource types in `lib/k8s/`. Import the schemas to get compile-time validation of your K8s manifests:
+
+```hone
+import "../lib/k8s/v1.30/apps.hone" as apps
+import "../lib/k8s/v1.30/core.hone" as core
+
+use apps.DeploymentSpec
+
+replicas: 3
+selector {
+  matchLabels { app: "api" }
+}
+template {
+  metadata { labels { app: "api" } }
+  spec {
+    containers: [{
+      name: "api"
+      image: "registry.example.com/api:v1.0"
+      ports: [{ containerPort: 8080 }]
+    }]
+  }
+}
+```
+
+The library covers Deployments, Services, ConfigMaps, Ingresses, Jobs, RBAC, and more -- 78 schemas across 7 API groups. All schemas are open (extra fields allowed), so you get validation on the fields Hone knows about without blocking fields it doesn't. See `examples/k8s-validated/` for working examples.
+
+Generate schemas for other K8s versions with:
+
+```bash
+python3 scripts/generate-k8s-schemas.py --version 1.31
+```
+
 ### Assertions
 
 Runtime constraints that fail the build if violated:
@@ -534,6 +568,8 @@ The playground is powered by a WebAssembly build of the full Hone compiler. Sour
 - [CLI Reference](docs/cli-reference.md) -- all commands and flags
 - [Editor Setup](docs/editor-setup.md) -- VS Code, Neovim, Helix, Sublime Text
 - [Error Catalog](docs/errors.md) -- every error code explained
+- **Libraries:**
+  - [Kubernetes Schemas](lib/k8s/) -- pre-built schemas for common K8s resource types (v1.30)
 - **Advanced:**
   - [Secrets](docs/advanced/secrets.md) -- secret placeholder management
   - [Policies](docs/advanced/policies.md) -- output validation rules

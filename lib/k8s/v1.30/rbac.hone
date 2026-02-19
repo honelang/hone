@@ -1,0 +1,65 @@
+# Kubernetes rbac schemas (auto-generated)
+#
+# Generated from kubernetes-json-schema v1.30.
+# Do not edit manually -- regenerate with scripts/generate-k8s-schemas.py
+
+import "./_meta.hone" as meta
+
+schema Role {
+  apiVersion?: string
+  kind?: string
+  metadata?: ObjectMeta
+  rules?: array # PolicyRule
+  ...
+}
+
+schema ClusterRole {
+  aggregationRule?: object
+  apiVersion?: string
+  kind?: string
+  metadata?: ObjectMeta
+  rules?: array # PolicyRule
+  ...
+}
+
+schema RoleBinding {
+  apiVersion?: string
+  kind?: string
+  metadata?: ObjectMeta
+  roleRef: RoleRef
+  subjects?: array # Subject
+  ...
+}
+
+schema ClusterRoleBinding {
+  apiVersion?: string
+  kind?: string
+  metadata?: ObjectMeta
+  roleRef: RoleRef
+  subjects?: array # Subject
+  ...
+}
+
+schema PolicyRule {
+  apiGroups?: array # string
+  nonResourceURLs?: array # string
+  resourceNames?: array # string
+  resources?: array # string
+  verbs: array # string
+  ...
+}
+
+schema RoleRef {
+  apiGroup: string
+  kind: string
+  name: string
+  ...
+}
+
+schema Subject {
+  apiGroup?: string
+  kind: string
+  name: string
+  namespace?: string
+  ...
+}

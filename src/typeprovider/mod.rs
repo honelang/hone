@@ -205,15 +205,41 @@ impl SchemaGenerator {
         if let Some(_enum_values) = schema.get("enum") {
             let base_type = schema
                 .get("type")
-                .and_then(|t| t.as_str())
+                .and_then(|t| {
+                    if let Some(s) = t.as_str() {
+                        return Some(s);
+                    }
+                    if let Some(arr) = t.as_array() {
+                        return arr.iter().filter_map(|v| v.as_str()).find(|s| *s != "null");
+                    }
+                    None
+                })
                 .unwrap_or("string");
             return Ok(map_primitive_type(base_type));
         }
 
-        // Get the type field
+        // Get the type field, handling both "type": "string" and "type": ["string", "null"]
         let type_val = schema.get("type");
+        let type_str = type_val.and_then(|t| {
+            // Direct string form: "type": "string"
+            if let Some(s) = t.as_str() {
+                return Some(s.to_string());
+            }
+            // Array form: "type": ["string", "null"] -- filter out "null", use remaining
+            if let Some(arr) = t.as_array() {
+                let non_null: Vec<&str> = arr
+                    .iter()
+                    .filter_map(|v| v.as_str())
+                    .filter(|s| *s != "null")
+                    .collect();
+                if non_null.len() == 1 {
+                    return Some(non_null[0].to_string());
+                }
+            }
+            None
+        });
 
-        match type_val.and_then(|t| t.as_str()) {
+        match type_str.as_deref() {
             Some("string") => Ok(self.resolve_string_type(schema)),
             Some("integer") => Ok(self.resolve_int_type(schema)),
             Some("number") => Ok(self.resolve_float_type(schema)),
@@ -346,7 +372,7 @@ fn map_primitive_type(json_type: &str) -> String {
 fn safe_field_name(name: &str) -> String {
     let reserved = [
         "let", "when", "else", "for", "import", "from", "true", "false", "null", "assert", "type",
-        "schema", "variant", "expect", "secret", "policy", "deny", "warn", "use", "in", "as",
+        "schema", "variant", "expect", "secret", "policy", "deny", "warn", "use", "in", "as", "fn",
     ];
     if reserved.contains(&name) {
         format!("\"{}\"", name)
@@ -673,6 +699,116 @@ mod tests {
         assert!(
             result.contains("state: string"),
             "enum should map to base type, got: {}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_nullable_string_type() {
+        let schema = serde_json::json!({
+            "type": "object",
+            "title": "K8sConfig",
+            "properties": {
+                "nodeName": { "type": ["string", "null"] },
+                "namespace": { "type": "string" }
+            }
+        });
+
+        let result = generate_from_schema(&schema).unwrap();
+        assert!(
+            result.contains("nodeName?: string"),
+            "nullable string should resolve to string, got: {}",
+            result
+        );
+        assert!(
+            result.contains("namespace?: string"),
+            "plain string should still work, got: {}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_nullable_integer_type() {
+        let schema = serde_json::json!({
+            "type": "object",
+            "title": "K8sSpec",
+            "properties": {
+                "replicas": { "type": ["integer", "null"] },
+                "port": { "type": "integer" }
+            }
+        });
+
+        let result = generate_from_schema(&schema).unwrap();
+        assert!(
+            result.contains("replicas?: int"),
+            "nullable integer should resolve to int, got: {}",
+            result
+        );
+        assert!(
+            result.contains("port?: int"),
+            "plain integer should still work, got: {}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_nullable_object_type() {
+        let schema = serde_json::json!({
+            "type": "object",
+            "title": "PodSpec",
+            "properties": {
+                "securityContext": { "type": ["object", "null"] }
+            }
+        });
+
+        let result = generate_from_schema(&schema).unwrap();
+        assert!(
+            result.contains("securityContext?: object"),
+            "nullable object should resolve to object, got: {}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_nullable_boolean_type() {
+        let schema = serde_json::json!({
+            "type": "object",
+            "title": "Config",
+            "properties": {
+                "optional": { "type": ["boolean", "null"] }
+            }
+        });
+
+        let result = generate_from_schema(&schema).unwrap();
+        assert!(
+            result.contains("optional?: bool"),
+            "nullable boolean should resolve to bool, got: {}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_fn_reserved_word() {
+        assert_eq!(safe_field_name("fn"), "\"fn\"");
+    }
+
+    #[test]
+    fn test_nullable_enum_type() {
+        let schema = serde_json::json!({
+            "type": "object",
+            "title": "Policy",
+            "properties": {
+                "protocol": {
+                    "type": ["string", "null"],
+                    "enum": ["TCP", "UDP", "SCTP"]
+                }
+            }
+        });
+
+        let result = generate_from_schema(&schema).unwrap();
+        assert!(
+            result.contains("protocol?: string"),
+            "nullable enum should resolve to string, got: {}",
             result
         );
     }

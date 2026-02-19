@@ -353,7 +353,20 @@ impl Parser {
     /// Parse a schema field
     fn parse_schema_field(&mut self) -> HoneResult<SchemaField> {
         let start_loc = self.current_location();
-        let name = self.expect_ident("field name")?;
+        // Accept both bare identifiers and quoted strings (for reserved words like "type", "secret")
+        let name = match &self.current().kind {
+            TokenKind::Ident(name) => {
+                let name = name.clone();
+                self.advance();
+                name
+            }
+            TokenKind::String(s) => {
+                let s = s.clone();
+                self.advance();
+                s
+            }
+            _ => return Err(self.error_unexpected("field name")),
+        };
 
         let optional = self.check(&TokenKind::Question);
         if optional {
@@ -1930,6 +1943,24 @@ mod tests {
             assert_eq!(schema.fields[1].name, "age");
             assert!(schema.fields[1].optional);
             assert!(schema.fields[1].default.is_some());
+        } else {
+            panic!("expected schema");
+        }
+    }
+
+    #[test]
+    fn test_schema_quoted_field_names() {
+        let file = parse("schema Volume { name: string, \"type\"?: string, \"secret\"?: object }")
+            .unwrap();
+        if let PreambleItem::Schema(schema) = &file.preamble[0] {
+            assert_eq!(schema.name, "Volume");
+            assert_eq!(schema.fields.len(), 3);
+            assert_eq!(schema.fields[0].name, "name");
+            assert!(!schema.fields[0].optional);
+            assert_eq!(schema.fields[1].name, "type");
+            assert!(schema.fields[1].optional);
+            assert_eq!(schema.fields[2].name, "secret");
+            assert!(schema.fields[2].optional);
         } else {
             panic!("expected schema");
         }

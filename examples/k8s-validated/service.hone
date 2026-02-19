@@ -1,0 +1,40 @@
+# Kubernetes Service with schema validation
+#
+# Validates Service structure at compile time. The schema ensures:
+#   - `spec.ports[].port` is an integer, not a string
+#   - `metadata` structure matches ObjectMeta
+#   - No misspelled top-level fields (open schema still catches nested typos)
+#
+# Run:
+#   hone compile examples/k8s-validated/service.hone --format yaml
+
+import "../../lib/k8s/v1.30/core.hone" as core
+import "../../lib/k8s/v1.30/_meta.hone" as meta
+
+use Service
+
+let app_name = "my-api"
+
+apiVersion: "v1"
+kind: "Service"
+metadata {
+  name: "${app_name}-svc"
+  namespace: "default"
+  labels {
+    "app.kubernetes.io/name": app_name
+  }
+}
+spec {
+  "type": "ClusterIP"
+  selector {
+    "app.kubernetes.io/name": app_name
+  }
+  ports: [
+    {
+      name: "http",
+      port: 80,
+      targetPort: 8080,
+      protocol: "TCP",
+    },
+  ]
+}

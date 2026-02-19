@@ -1,0 +1,36 @@
+# Kubernetes _meta schemas (auto-generated)
+#
+# Generated from kubernetes-json-schema v1.30.
+# Do not edit manually -- regenerate with scripts/generate-k8s-schemas.py
+
+schema ObjectMeta {
+  annotations?: object
+  creationTimestamp?: object
+  deletionGracePeriodSeconds?: int
+  deletionTimestamp?: object
+  finalizers?: array # string
+  generateName?: string
+  generation?: int
+  labels?: object
+  managedFields?: array # object
+  name?: string
+  namespace?: string
+  ownerReferences?: array # object
+  resourceVersion?: string
+  selfLink?: string
+  uid?: string
+  ...
+}
+
+schema LabelSelector {
+  matchExpressions?: array # LabelSelectorRequirement
+  matchLabels?: object
+  ...
+}
+
+schema LabelSelectorRequirement {
+  key: string
+  operator: string
+  values?: array # string
+  ...
+}

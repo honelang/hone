@@ -1,0 +1,98 @@
+# Full-stack K8s manifests: Deployment + Service
+#
+# Multi-document output with schema validation on each resource.
+# Demonstrates importing schemas from the K8s library and using
+# variables across documents.
+#
+# Run:
+#   hone compile examples/k8s-validated/full-stack.hone --format yaml
+#   hone compile examples/k8s-validated/full-stack.hone --format yaml --output-dir /tmp/k8s
+
+import "../../lib/k8s/v1.30/apps.hone" as apps
+import "../../lib/k8s/v1.30/core.hone" as core
+import "../../lib/k8s/v1.30/_meta.hone" as meta
+
+let app_name = "web-frontend"
+let namespace = "production"
+let image = "ghcr.io/myorg/web-frontend:v3.1.0"
+let replicas = 3
+let port = 3000
+
+let common_labels = {
+  "app.kubernetes.io/name": app_name,
+  "app.kubernetes.io/managed-by": "hone",
+}
+
+---deployment
+apiVersion: "apps/v1"
+kind: "Deployment"
+metadata {
+  name: app_name
+  namespace: namespace
+  labels {
+    ...common_labels
+  }
+}
+spec {
+  replicas: replicas
+  selector {
+    matchLabels {
+      "app.kubernetes.io/name": app_name
+    }
+  }
+  template {
+    metadata {
+      labels {
+        ...common_labels
+      }
+    }
+    spec {
+      containers: [{
+        name: app_name,
+        image: image,
+        ports: [{ containerPort: port }],
+        resources {
+          requests {
+            cpu: "100m"
+            memory: "128Mi"
+          }
+          limits {
+            cpu: "500m"
+            memory: "256Mi"
+          }
+        }
+        readinessProbe {
+          httpGet {
+            path: "/"
+            port: port
+          }
+          initialDelaySeconds: 3
+          periodSeconds: 5
+        }
+      }]
+    }
+  }
+}
+
+---service
+apiVersion: "v1"
+kind: "Service"
+metadata {
+  name: "${app_name}-svc"
+  namespace: namespace
+  labels {
+    ...common_labels
+  }
+}
+spec {
+  "type": "ClusterIP"
+  selector {
+    "app.kubernetes.io/name": app_name
+  }
+  ports: [{
+    name: "http",
+    port: 80,
+    targetPort: port,
+    protocol: "TCP",
+  }]
+}

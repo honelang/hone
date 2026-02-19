@@ -41,8 +41,18 @@ hone/
 │   ├── differ/          # Structural diff with move detection
 │   ├── typeprovider/    # JSON Schema -> Hone type generation
 │   └── lsp/             # Language Server Protocol
+├── lib/
+│   └── k8s/v1.30/       # Kubernetes schema library (78 schemas)
+│       ├── _types.hone   # IntOrString, Quantity, K8sName type aliases
+│       ├── _meta.hone    # ObjectMeta, LabelSelector
+│       ├── core.hone     # Pod, Service, ConfigMap, Container, etc.
+│       ├── apps.hone     # Deployment, StatefulSet, DaemonSet
+│       ├── batch.hone    # Job, CronJob
+│       ├── networking.hone # Ingress, NetworkPolicy
+│       └── rbac.hone     # Role, ClusterRole, RoleBinding
 ├── examples/
 │   ├── microservices/   # Multi-file K8s stack (API, worker, Redis, Postgres)
+│   ├── k8s-validated/   # K8s manifests with schema validation
 │   └── ci-pipeline/     # Multi-file GitHub Actions CI/CD workflow
 ├── editors/
 │   └── vscode/          # VS Code/Cursor extension
@@ -837,6 +847,30 @@ schema Extended extends Base {
 
 (none currently)
 
+## Kubernetes Schema Library
+
+The `lib/k8s/v1.30/` directory contains 78 Hone schemas generated from the official Kubernetes JSON Schema definitions. Usage:
+
+```hone
+import "../../lib/k8s/v1.30/apps.hone" as apps
+import "../../lib/k8s/v1.30/core.hone" as core
+import "../../lib/k8s/v1.30/_meta.hone" as meta
+
+use Deployment
+
+apiVersion: "apps/v1"
+kind: "Deployment"
+# ... validated at compile time
+```
+
+**Design decisions:**
+- All schemas are **open** (`...`) -- validates defined fields, allows extras
+- No status fields (users don't write status blocks)
+- Fields named with Hone reserved words (`type`, `secret`) are quoted in schemas (e.g., `"type"?: string`)
+- `IntOrString` is aliased to `string` (Hone lacks union types)
+
+**Regeneration:** `python3 scripts/generate-k8s-schemas.py [--version 1.30]`
+
 ## Current Limitations
 
 1. **No package manager** - imports are file-path based only
@@ -903,6 +937,22 @@ hone compile examples/microservices/main.hone --format yaml --output-dir ./manif
 hone compile examples/microservices/main.hone --format yaml --variant env=production --set image_tag=v2.0.0 --output-dir ./manifests
 ```
 
+### Kubernetes with Schema Validation
+
+```
+examples/k8s-validated/
+├── deployment.hone  # Deployment with full schema validation
+├── service.hone     # Service with schema validation
+└── full-stack.hone  # Multi-doc Deployment + Service
+```
+
+```bash
+hone compile examples/k8s-validated/deployment.hone --format yaml
+hone compile examples/k8s-validated/full-stack.hone --format yaml --output-dir /tmp/k8s
+```
+
+Uses the K8s schema library at `lib/k8s/v1.30/`. Import schemas and add `use Deployment` to get compile-time validation. Catches: wrong types (`replicas: "3"`), missing required fields (`containers`), type mismatches in nested structures.
+
 ### GitHub Actions CI/CD Pipeline
 
 ```
@@ -919,10 +969,10 @@ hone compile examples/ci-pipeline/main.hone --format yaml --variant deploy=produ
 ## Build and Test
 
 ```bash
-cargo test                    # 647 tests, all must pass
+cargo test                    # All tests must pass
 cargo clippy -- -D warnings   # Zero warnings required
 cargo fmt -- --check          # Formatting enforced
-scripts/verify-examples.sh ./target/release/hone  # 15 example checks
+scripts/verify-examples.sh ./target/release/hone  # All example checks
 scripts/audit.sh              # Full launch audit (38 checks)
 ```
 

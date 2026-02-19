@@ -871,11 +871,7 @@ fn builtin_sha256(args: Vec<Value>, location: &SourceLocation, source: &str) -> 
 }
 
 /// type_of(value) -> string
-fn builtin_type_of(
-    args: Vec<Value>,
-    location: &SourceLocation,
-    source: &str,
-) -> HoneResult<Value> {
+fn builtin_type_of(args: Vec<Value>, location: &SourceLocation, source: &str) -> HoneResult<Value> {
     check_arity("type_of", &args, 1, location, source)?;
     Ok(Value::String(args[0].type_name().to_string()))
 }
@@ -914,11 +910,7 @@ fn builtin_substring(
 // ── P2 builtins ────────────────────────────────────────────────────────
 
 /// entries(object) -> [[key, value], ...]
-fn builtin_entries(
-    args: Vec<Value>,
-    location: &SourceLocation,
-    source: &str,
-) -> HoneResult<Value> {
+fn builtin_entries(args: Vec<Value>, location: &SourceLocation, source: &str) -> HoneResult<Value> {
     check_arity("entries", &args, 1, location, source)?;
     match &args[0] {
         Value::Object(obj) => {
@@ -1001,11 +993,7 @@ fn builtin_clamp(args: Vec<Value>, location: &SourceLocation, source: &str) -> H
 }
 
 /// reverse(array) -> array
-fn builtin_reverse(
-    args: Vec<Value>,
-    location: &SourceLocation,
-    source: &str,
-) -> HoneResult<Value> {
+fn builtin_reverse(args: Vec<Value>, location: &SourceLocation, source: &str) -> HoneResult<Value> {
     check_arity("reverse", &args, 1, location, source)?;
     match &args[0] {
         Value::Array(arr) => {
@@ -1027,13 +1015,7 @@ fn builtin_reverse(
 /// slice(array, start, end?) -> array, slice(string, start, end?) -> string
 fn builtin_slice(args: Vec<Value>, location: &SourceLocation, source: &str) -> HoneResult<Value> {
     if args.len() < 2 || args.len() > 3 {
-        return Err(arity_error(
-            "slice",
-            "2 or 3",
-            args.len(),
-            location,
-            source,
-        ));
+        return Err(arity_error("slice", "2 or 3", args.len(), location, source));
     }
     let start = expect_int("slice", &args[1], location, source)?;
     match &args[0] {
@@ -1041,10 +1023,7 @@ fn builtin_slice(args: Vec<Value>, location: &SourceLocation, source: &str) -> H
             let len = arr.len() as i64;
             let start = normalize_index(start, len) as usize;
             let end = if args.len() == 3 {
-                normalize_index(
-                    expect_int("slice", &args[2], location, source)?,
-                    len,
-                ) as usize
+                normalize_index(expect_int("slice", &args[2], location, source)?, len) as usize
             } else {
                 len as usize
             };
@@ -1060,10 +1039,7 @@ fn builtin_slice(args: Vec<Value>, location: &SourceLocation, source: &str) -> H
             let len = chars.len() as i64;
             let start = normalize_index(start, len) as usize;
             let end = if args.len() == 3 {
-                normalize_index(
-                    expect_int("slice", &args[2], location, source)?,
-                    len,
-                ) as usize
+                normalize_index(expect_int("slice", &args[2], location, source)?, len) as usize
             } else {
                 len as usize
             };
@@ -1872,10 +1848,7 @@ mod tests {
         assert_eq!(
             call_builtin(
                 "starts_with",
-                vec![
-                    Value::String("hello".into()),
-                    Value::String("world".into())
-                ],
+                vec![Value::String("hello".into()), Value::String("world".into())],
                 &loc(),
                 ""
             )
@@ -1931,7 +1904,13 @@ mod tests {
             Value::Int(1)
         );
         assert_eq!(
-            call_builtin("min", vec![Value::Float(3.5), Value::Float(1.2)], &loc(), "").unwrap(),
+            call_builtin(
+                "min",
+                vec![Value::Float(3.5), Value::Float(1.2)],
+                &loc(),
+                ""
+            )
+            .unwrap(),
             Value::Float(1.2)
         );
         assert_eq!(
@@ -1947,7 +1926,13 @@ mod tests {
             Value::Int(3)
         );
         assert_eq!(
-            call_builtin("max", vec![Value::Float(3.5), Value::Float(1.2)], &loc(), "").unwrap(),
+            call_builtin(
+                "max",
+                vec![Value::Float(3.5), Value::Float(1.2)],
+                &loc(),
+                ""
+            )
+            .unwrap(),
             Value::Float(3.5)
         );
     }
@@ -2008,10 +1993,7 @@ mod tests {
         let result = call_builtin("unique", vec![arr], &loc(), "").unwrap();
         assert_eq!(
             result,
-            Value::Array(vec![
-                Value::String("a".into()),
-                Value::String("b".into()),
-            ])
+            Value::Array(vec![Value::String("a".into()), Value::String("b".into()),])
         );
     }
 
@@ -2032,10 +2014,13 @@ mod tests {
 
     #[test]
     fn test_sha256() {
-        let result = call_builtin("sha256", vec![Value::String("hello".into())], &loc(), "").unwrap();
+        let result =
+            call_builtin("sha256", vec![Value::String("hello".into())], &loc(), "").unwrap();
         assert_eq!(
             result,
-            Value::String("2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824".into())
+            Value::String(
+                "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824".into()
+            )
         );
     }
 
@@ -2044,7 +2029,9 @@ mod tests {
         let result = call_builtin("sha256", vec![Value::String("".into())], &loc(), "").unwrap();
         assert_eq!(
             result,
-            Value::String("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855".into())
+            Value::String(
+                "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855".into()
+            )
         );
     }
 
@@ -2085,7 +2072,11 @@ mod tests {
         assert_eq!(
             call_builtin(
                 "substring",
-                vec![Value::String("hello world".into()), Value::Int(0), Value::Int(5)],
+                vec![
+                    Value::String("hello world".into()),
+                    Value::Int(0),
+                    Value::Int(5)
+                ],
                 &loc(),
                 ""
             )
@@ -2249,8 +2240,13 @@ mod tests {
             Value::Int(50),
         ]);
         assert_eq!(
-            call_builtin("slice", vec![arr.clone(), Value::Int(1), Value::Int(3)], &loc(), "")
-                .unwrap(),
+            call_builtin(
+                "slice",
+                vec![arr.clone(), Value::Int(1), Value::Int(3)],
+                &loc(),
+                ""
+            )
+            .unwrap(),
             Value::Array(vec![Value::Int(20), Value::Int(30)])
         );
         // Without end

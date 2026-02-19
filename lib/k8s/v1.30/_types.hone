@@ -1,0 +1,9 @@
+# Kubernetes shared type aliases
+#
+# Common constrained types used across K8s resource schemas.
+# Import these in your .hone files alongside the resource schemas.
+
+type IntOrString = string
+type Quantity = string
+type K8sName = string(1, 253)
+type K8sDnsLabel = string(1, 63)

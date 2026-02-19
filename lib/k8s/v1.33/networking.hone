@@ -1,0 +1,107 @@
+# Kubernetes networking schemas (auto-generated)
+#
+# Generated from kubernetes-json-schema v1.30.
+# Do not edit manually -- regenerate with scripts/generate-k8s-schemas.py
+
+import "./_meta.hone" as meta
+
+schema Ingress {
+  apiVersion?: string
+  kind?: string
+  metadata?: ObjectMeta
+  spec?: IngressSpec
+  status?: object
+  ...
+}
+
+schema IngressSpec {
+  defaultBackend?: IngressBackend
+  ingressClassName?: string
+  rules?: array # IngressRule
+  tls?: array # IngressTLS
+  ...
+}
+
+schema IngressRule {
+  host?: string
+  http?: HTTPIngressRuleValue
+  ...
+}
+
+schema HTTPIngressRuleValue {
+  paths: array # HTTPIngressPath
+  ...
+}
+
+schema HTTPIngressPath {
+  backend: IngressBackend
+  path?: string
+  pathType: string
+  ...
+}
+
+schema IngressBackend {
+  resource?: object
+  service?: IngressServiceBackend
+  ...
+}
+
+schema IngressServiceBackend {
+  name: string
+  port?: ServiceBackendPort
+  ...
+}
+
+schema ServiceBackendPort {
+  name?: string
+  number?: int
+  ...
+}
+
+schema IngressTLS {
+  hosts?: array # string
+  secretName?: string
+  ...
+}
+
+schema NetworkPolicy {
+  apiVersion?: string
+  kind?: string
+  metadata?: ObjectMeta
+  spec?: NetworkPolicySpec
+  ...
+}
+
+schema NetworkPolicySpec {
+  egress?: array # NetworkPolicyEgressRule
+  ingress?: array # NetworkPolicyIngressRule
+  podSelector: LabelSelector
+  policyTypes?: array # string
+  ...
+}
+
+schema NetworkPolicyIngressRule {
+  "from"?: array # NetworkPolicyPeer
+  ports?: array # NetworkPolicyPort
+  ...
+}
+
+schema NetworkPolicyEgressRule {
+  ports?: array # NetworkPolicyPort
+  to?: array # NetworkPolicyPeer
+  ...
+}
+
+schema NetworkPolicyPeer {
+  ipBlock?: object
+  namespaceSelector?: LabelSelector
+  podSelector?: LabelSelector
+  ...
+}
+
+schema NetworkPolicyPort {
+  endPort?: int
+  port?: IntOrString
+  protocol?: string
+  ...
+}

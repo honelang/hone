@@ -1,0 +1,393 @@
+# Kubernetes core schemas (auto-generated)
+#
+# Generated from kubernetes-json-schema v1.30.
+# Do not edit manually -- regenerate with scripts/generate-k8s-schemas.py
+
+import "./_meta.hone" as meta
+
+schema PodSpec {
+  activeDeadlineSeconds?: int
+  affinity?: object
+  automountServiceAccountToken?: bool
+  containers: array # Container
+  dnsConfig?: object
+  dnsPolicy?: string
+  enableServiceLinks?: bool
+  ephemeralContainers?: array # object
+  hostAliases?: array # object
+  hostIPC?: bool
+  hostNetwork?: bool
+  hostPID?: bool
+  hostUsers?: bool
+  hostname?: string
+  imagePullSecrets?: array # object
+  initContainers?: array # Container
+  nodeName?: string
+  nodeSelector?: object
+  os?: object
+  overhead?: object
+  preemptionPolicy?: string
+  priority?: int
+  priorityClassName?: string
+  readinessGates?: array # object
+  resourceClaims?: array # object
+  resources?: ResourceRequirements
+  restartPolicy?: string
+  runtimeClassName?: string
+  schedulerName?: string
+  schedulingGates?: array # object
+  securityContext?: object
+  serviceAccount?: string
+  serviceAccountName?: string
+  setHostnameAsFQDN?: bool
+  shareProcessNamespace?: bool
+  subdomain?: string
+  terminationGracePeriodSeconds?: int
+  tolerations?: array # object
+  topologySpreadConstraints?: array # object
+  volumes?: array # Volume
+  ...
+}
+
+schema PodTemplateSpec {
+  metadata?: ObjectMeta
+  spec?: PodSpec
+  ...
+}
+
+schema Container {
+  args?: array # string
+  command?: array # string
+  env?: array # EnvVar
+  envFrom?: array # object
+  image?: string
+  imagePullPolicy?: string
+  lifecycle?: object
+  livenessProbe?: Probe
+  name: string
+  ports?: array # ContainerPort
+  readinessProbe?: Probe
+  resizePolicy?: array # object
+  resources?: ResourceRequirements
+  restartPolicy?: string
+  securityContext?: SecurityContext
+  startupProbe?: Probe
+  stdin?: bool
+  stdinOnce?: bool
+  terminationMessagePath?: string
+  terminationMessagePolicy?: string
+  tty?: bool
+  volumeDevices?: array # object
+  volumeMounts?: array # VolumeMount
+  workingDir?: string
+  ...
+}
+
+schema ContainerPort {
+  containerPort: int
+  hostIP?: string
+  hostPort?: int
+  name?: string
+  protocol?: string
+  ...
+}
+
+schema EnvVar {
+  name: string
+  value?: string
+  valueFrom?: EnvVarSource
+  ...
+}
+
+schema EnvVarSource {
+  configMapKeyRef?: ConfigMapKeySelector
+  fieldRef?: ObjectFieldSelector
+  resourceFieldRef?: ResourceFieldSelector
+  secretKeyRef?: SecretKeySelector
+  ...
+}
+
+schema VolumeMount {
+  mountPath: string
+  mountPropagation?: string
+  name: string
+  readOnly?: bool
+  recursiveReadOnly?: string
+  subPath?: string
+  subPathExpr?: string
+  ...
+}
+
+schema Volume {
+  awsElasticBlockStore?: object
+  azureDisk?: object
+  azureFile?: object
+  cephfs?: object
+  cinder?: object
+  configMap?: ConfigMapVolumeSource
+  csi?: object
+  downwardAPI?: object
+  emptyDir?: EmptyDirVolumeSource
+  ephemeral?: object
+  fc?: object
+  flexVolume?: object
+  flocker?: object
+  gcePersistentDisk?: object
+  gitRepo?: object
+  glusterfs?: object
+  hostPath?: HostPathVolumeSource
+  image?: object
+  iscsi?: object
+  name: string
+  nfs?: object
+  persistentVolumeClaim?: PersistentVolumeClaimVolumeSource
+  photonPersistentDisk?: object
+  portworxVolume?: object
+  projected?: object
+  quobyte?: object
+  rbd?: object
+  scaleIO?: object
+  "secret"?: SecretVolumeSource
+  storageos?: object
+  vsphereVolume?: object
+  ...
+}
+
+schema ConfigMapVolumeSource {
+  defaultMode?: int
+  items?: array # KeyToPath
+  name?: string
+  optional?: bool
+  ...
+}
+
+schema SecretVolumeSource {
+  defaultMode?: int
+  items?: array # KeyToPath
+  optional?: bool
+  secretName?: string
+  ...
+}
+
+schema EmptyDirVolumeSource {
+  medium?: string
+  sizeLimit?: Quantity
+  ...
+}
+
+schema PersistentVolumeClaimVolumeSource {
+  claimName: string
+  readOnly?: bool
+  ...
+}
+
+schema HostPathVolumeSource {
+  path: string
+  "type"?: string
+  ...
+}
+
+schema ResourceRequirements {
+  claims?: array # object
+  limits?: object
+  requests?: object
+  ...
+}
+
+schema Probe {
+  exec?: ExecAction
+  failureThreshold?: int
+  grpc?: object
+  httpGet?: HTTPGetAction
+  initialDelaySeconds?: int
+  periodSeconds?: int
+  successThreshold?: int
+  tcpSocket?: TCPSocketAction
+  terminationGracePeriodSeconds?: int
+  timeoutSeconds?: int
+  ...
+}
+
+schema HTTPGetAction {
+  host?: string
+  httpHeaders?: array # object
+  path?: string
+  port: IntOrString
+  scheme?: string
+  ...
+}
+
+schema TCPSocketAction {
+  host?: string
+  port: IntOrString
+  ...
+}
+
+schema ExecAction {
+  command?: array # string
+  ...
+}
+
+schema SecurityContext {
+  allowPrivilegeEscalation?: bool
+  appArmorProfile?: object
+  capabilities?: object
+  privileged?: bool
+  procMount?: string
+  readOnlyRootFilesystem?: bool
+  runAsGroup?: int
+  runAsNonRoot?: bool
+  runAsUser?: int
+  seLinuxOptions?: object
+  seccompProfile?: object
+  windowsOptions?: object
+  ...
+}
+
+schema ServiceSpec {
+  allocateLoadBalancerNodePorts?: bool
+  clusterIP?: string
+  clusterIPs?: array # string
+  externalIPs?: array # string
+  externalName?: string
+  externalTrafficPolicy?: string
+  healthCheckNodePort?: int
+  internalTrafficPolicy?: string
+  ipFamilies?: array # string
+  ipFamilyPolicy?: string
+  loadBalancerClass?: string
+  loadBalancerIP?: string
+  loadBalancerSourceRanges?: array # string
+  ports?: array # ServicePort
+  publishNotReadyAddresses?: bool
+  selector?: object
+  sessionAffinity?: string
+  sessionAffinityConfig?: object
+  trafficDistribution?: string
+  "type"?: string
+  ...
+}
+
+schema ServicePort {
+  appProtocol?: string
+  name?: string
+  nodePort?: int
+  port: int
+  protocol?: string
+  targetPort?: IntOrString
+  ...
+}
+
+schema ConfigMap {
+  apiVersion?: string
+  binaryData?: object
+  data?: object
+  immutable?: bool
+  kind?: string
+  metadata?: ObjectMeta
+  ...
+}
+
+schema Secret {
+  apiVersion?: string
+  data?: object
+  immutable?: bool
+  kind?: string
+  metadata?: ObjectMeta
+  stringData?: object
+  "type"?: string
+  ...
+}
+
+schema Service {
+  apiVersion?: string
+  kind?: string
+  metadata?: ObjectMeta
+  spec?: ServiceSpec
+  status?: object
+  ...
+}
+
+schema PersistentVolumeClaim {
+  apiVersion?: string
+  kind?: string
+  metadata?: ObjectMeta
+  spec?: PersistentVolumeClaimSpec
+  status?: object
+  ...
+}
+
+schema PersistentVolumeClaimSpec {
+  accessModes?: array # string
+  dataSource?: object
+  dataSourceRef?: object
+  resources?: object
+  selector?: LabelSelector
+  storageClassName?: string
+  volumeAttributesClassName?: string
+  volumeMode?: string
+  volumeName?: string
+  ...
+}
+
+schema Pod {
+  apiVersion?: string
+  kind?: string
+  metadata?: ObjectMeta
+  spec?: PodSpec
+  status?: object
+  ...
+}
+
+schema Namespace {
+  apiVersion?: string
+  kind?: string
+  metadata?: ObjectMeta
+  spec?: object
+  status?: object
+  ...
+}
+
+schema ServiceAccount {
+  apiVersion?: string
+  automountServiceAccountToken?: bool
+  imagePullSecrets?: array # object
+  kind?: string
+  metadata?: ObjectMeta
+  secrets?: array # object
+  ...
+}
+
+schema KeyToPath {
+  key: string
+  mode?: int
+  path: string
+  ...
+}
+
+schema ObjectFieldSelector {
+  apiVersion?: string
+  fieldPath: string
+  ...
+}
+
+schema ConfigMapKeySelector {
+  key: string
+  name?: string
+  optional?: bool
+  ...
+}
+
+schema SecretKeySelector {
+  key: string
+  name?: string
+  optional?: bool
+  ...
+}
+
+schema ResourceFieldSelector {
+  containerName?: string
+  divisor?: Quantity
+  resource: string
+  ...
+}

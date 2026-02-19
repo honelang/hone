@@ -457,9 +457,7 @@ impl Compiler {
                                     name_import.alias.as_ref().unwrap_or(&name_import.name);
 
                                 // Check if it's a function export first
-                                if let Some(fn_def) =
-                                    compiled.fn_exports.get(&name_import.name)
-                                {
+                                if let Some(fn_def) = compiled.fn_exports.get(&name_import.name) {
                                     evaluator.register_user_function(
                                         local_name.clone(),
                                         fn_def.params.clone(),
@@ -658,10 +656,13 @@ impl Compiler {
             .iter()
             .filter_map(|item| {
                 if let PreambleItem::FnDef(fn_def) = item {
-                    Some((fn_def.name.clone(), FnExportDef {
-                        params: fn_def.params.clone(),
-                        body: fn_def.body.clone(),
-                    }))
+                    Some((
+                        fn_def.name.clone(),
+                        FnExportDef {
+                            params: fn_def.params.clone(),
+                            body: fn_def.body.clone(),
+                        },
+                    ))
                 } else {
                     None
                 }

@@ -38,6 +38,15 @@ if [ -d examples/microservices ]; then
   rm -rf "$tmpdir"
 fi
 
+# K8s validated examples
+if [ -d examples/k8s-validated ]; then
+  compile "examples/k8s-validated/deployment.hone (yaml)" compile examples/k8s-validated/deployment.hone --format yaml
+  compile "examples/k8s-validated/service.hone (yaml)" compile examples/k8s-validated/service.hone --format yaml
+  tmpdir=$(mktemp -d)
+  compile "examples/k8s-validated/full-stack.hone (yaml, output-dir)" compile examples/k8s-validated/full-stack.hone --format yaml --output-dir "$tmpdir"
+  rm -rf "$tmpdir"
+fi
+
 # Multi-file CI pipeline
 if [ -d examples/ci-pipeline ]; then
   compile "examples/ci-pipeline/main.hone (yaml)" compile examples/ci-pipeline/main.hone --format yaml

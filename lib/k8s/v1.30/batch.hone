@@ -1,0 +1,63 @@
+# Kubernetes batch schemas (auto-generated)
+#
+# Generated from kubernetes-json-schema v1.30.
+# Do not edit manually -- regenerate with scripts/generate-k8s-schemas.py
+
+import "./_meta.hone" as meta
+import "./core.hone" as core
+
+schema Job {
+  apiVersion?: string
+  kind?: string
+  metadata?: ObjectMeta
+  spec?: JobSpec
+  status?: object
+  ...
+}
+
+schema JobSpec {
+  activeDeadlineSeconds?: int
+  backoffLimit?: int
+  backoffLimitPerIndex?: int
+  completionMode?: string
+  completions?: int
+  managedBy?: string
+  manualSelector?: bool
+  maxFailedIndexes?: int
+  parallelism?: int
+  podFailurePolicy?: object
+  podReplacementPolicy?: string
+  selector?: LabelSelector
+  successPolicy?: object
+  suspend?: bool
+  template: PodTemplateSpec
+  ttlSecondsAfterFinished?: int
+  ...
+}
+
+schema CronJob {
+  apiVersion?: string
+  kind?: string
+  metadata?: ObjectMeta
+  spec?: CronJobSpec
+  status?: object
+  ...
+}
+
+schema CronJobSpec {
+  concurrencyPolicy?: string
+  failedJobsHistoryLimit?: int
+  jobTemplate: JobTemplateSpec
+  schedule: string
+  startingDeadlineSeconds?: int
+  successfulJobsHistoryLimit?: int
+  suspend?: bool
+  timeZone?: string
+  ...
+}
+
+schema JobTemplateSpec {
+  metadata?: ObjectMeta
+  spec?: JobSpec
+  ...
+}

@@ -1,0 +1,87 @@
+# Kubernetes apps schemas (auto-generated)
+#
+# Generated from kubernetes-json-schema v1.30.
+# Do not edit manually -- regenerate with scripts/generate-k8s-schemas.py
+
+import "./_meta.hone" as meta
+import "./core.hone" as core
+
+schema Deployment {
+  apiVersion?: string
+  kind?: string
+  metadata?: ObjectMeta
+  spec?: DeploymentSpec
+  status?: object
+  ...
+}
+
+schema DeploymentSpec {
+  minReadySeconds?: int
+  paused?: bool
+  progressDeadlineSeconds?: int
+  replicas?: int
+  revisionHistoryLimit?: int
+  selector: LabelSelector
+  strategy?: object
+  template: PodTemplateSpec
+  ...
+}
+
+schema DaemonSet {
+  apiVersion?: string
+  kind?: string
+  metadata?: ObjectMeta
+  spec?: DaemonSetSpec
+  status?: object
+  ...
+}
+
+schema DaemonSetSpec {
+  minReadySeconds?: int
+  revisionHistoryLimit?: int
+  selector: LabelSelector
+  template: PodTemplateSpec
+  updateStrategy?: object
+  ...
+}
+
+schema StatefulSet {
+  apiVersion?: string
+  kind?: string
+  metadata?: ObjectMeta
+  spec?: StatefulSetSpec
+  status?: object
+  ...
+}
+
+schema StatefulSetSpec {
+  minReadySeconds?: int
+  ordinals?: object
+  persistentVolumeClaimRetentionPolicy?: object
+  podManagementPolicy?: string
+  replicas?: int
+  revisionHistoryLimit?: int
+  selector: LabelSelector
+  serviceName?: string
+  template: PodTemplateSpec
+  updateStrategy?: object
+  volumeClaimTemplates?: array # PersistentVolumeClaim
+  ...
+}
+
+schema ReplicaSet {
+  apiVersion?: string
+  kind?: string
+  metadata?: ObjectMeta
+  spec?: ReplicaSetSpec
+  status?: object
+  ...
+}
+
+schema ReplicaSetSpec {
+  minReadySeconds?: int
+  replicas?: int
+  selector: LabelSelector
+  template?: PodTemplateSpec
+  ...
+}
