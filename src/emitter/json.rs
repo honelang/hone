@@ -262,4 +262,24 @@ mod tests {
         assert_eq!(emitter.emit(&Value::Array(vec![])).unwrap(), "[]");
         assert_eq!(emitter.emit(&Value::Object(IndexMap::new())).unwrap(), "{}");
     }
+
+    // --- Group 8: Emitter Edge Cases ---
+
+    #[test]
+    fn test_emit_float_infinity_to_null() {
+        let emitter = JsonEmitter::new(false);
+        assert_eq!(emitter.emit(&Value::Float(f64::INFINITY)).unwrap(), "null");
+    }
+
+    #[test]
+    fn test_emit_float_nan_to_null() {
+        let emitter = JsonEmitter::new(false);
+        assert_eq!(emitter.emit(&Value::Float(f64::NAN)).unwrap(), "null");
+    }
+
+    #[test]
+    fn test_emit_float_whole_number_trailing_dot_zero() {
+        let emitter = JsonEmitter::new(false);
+        assert_eq!(emitter.emit(&Value::Float(3.0)).unwrap(), "3.0");
+    }
 }

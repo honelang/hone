@@ -2283,4 +2283,178 @@ mod tests {
             Value::Array(vec![])
         );
     }
+
+    // --- Group 2: Untested Builtins ---
+
+    #[test]
+    fn test_to_bool_truthiness() {
+        // Falsy values
+        assert_eq!(
+            call_builtin("to_bool", vec![Value::Null], &loc(), "").unwrap(),
+            Value::Bool(false)
+        );
+        assert_eq!(
+            call_builtin("to_bool", vec![Value::Int(0)], &loc(), "").unwrap(),
+            Value::Bool(false)
+        );
+        assert_eq!(
+            call_builtin("to_bool", vec![Value::String("".into())], &loc(), "").unwrap(),
+            Value::Bool(false)
+        );
+        assert_eq!(
+            call_builtin("to_bool", vec![Value::Array(vec![])], &loc(), "").unwrap(),
+            Value::Bool(false)
+        );
+        assert_eq!(
+            call_builtin("to_bool", vec![Value::Object(IndexMap::new())], &loc(), "").unwrap(),
+            Value::Bool(false)
+        );
+        assert_eq!(
+            call_builtin("to_bool", vec![Value::Bool(false)], &loc(), "").unwrap(),
+            Value::Bool(false)
+        );
+        // Truthy values
+        assert_eq!(
+            call_builtin("to_bool", vec![Value::Int(1)], &loc(), "").unwrap(),
+            Value::Bool(true)
+        );
+        assert_eq!(
+            call_builtin("to_bool", vec![Value::String("x".into())], &loc(), "").unwrap(),
+            Value::Bool(true)
+        );
+        assert_eq!(
+            call_builtin(
+                "to_bool",
+                vec![Value::Array(vec![Value::Int(1)])],
+                &loc(),
+                ""
+            )
+            .unwrap(),
+            Value::Bool(true)
+        );
+        assert_eq!(
+            call_builtin("to_bool", vec![Value::Bool(true)], &loc(), "").unwrap(),
+            Value::Bool(true)
+        );
+    }
+
+    #[test]
+    fn test_to_float_from_int() {
+        assert_eq!(
+            call_builtin("to_float", vec![Value::Int(42)], &loc(), "").unwrap(),
+            Value::Float(42.0)
+        );
+    }
+
+    #[test]
+    fn test_to_float_from_string() {
+        assert_eq!(
+            call_builtin("to_float", vec![Value::String("3.14".into())], &loc(), "").unwrap(),
+            Value::Float(3.14)
+        );
+    }
+
+    #[test]
+    fn test_to_float_invalid_string_errors() {
+        let result = call_builtin("to_float", vec![Value::String("abc".into())], &loc(), "");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_merge_builtin_shallow() {
+        let mut a = IndexMap::new();
+        a.insert("a".to_string(), Value::Int(1));
+        a.insert("b".to_string(), Value::Int(2));
+        let mut b = IndexMap::new();
+        b.insert("b".to_string(), Value::Int(3));
+        b.insert("c".to_string(), Value::Int(4));
+
+        let result = call_builtin(
+            "merge",
+            vec![Value::Object(a), Value::Object(b)],
+            &loc(),
+            "",
+        )
+        .unwrap();
+
+        let mut expected = IndexMap::new();
+        expected.insert("a".to_string(), Value::Int(1));
+        expected.insert("b".to_string(), Value::Int(3));
+        expected.insert("c".to_string(), Value::Int(4));
+        assert_eq!(result, Value::Object(expected));
+    }
+
+    #[test]
+    fn test_merge_builtin_multiple_args() {
+        let mut a = IndexMap::new();
+        a.insert("a".to_string(), Value::Int(1));
+        let mut b = IndexMap::new();
+        b.insert("b".to_string(), Value::Int(2));
+        let mut c = IndexMap::new();
+        c.insert("c".to_string(), Value::Int(3));
+
+        let result = call_builtin(
+            "merge",
+            vec![Value::Object(a), Value::Object(b), Value::Object(c)],
+            &loc(),
+            "",
+        )
+        .unwrap();
+
+        let mut expected = IndexMap::new();
+        expected.insert("a".to_string(), Value::Int(1));
+        expected.insert("b".to_string(), Value::Int(2));
+        expected.insert("c".to_string(), Value::Int(3));
+        assert_eq!(result, Value::Object(expected));
+    }
+
+    #[test]
+    fn test_range_negative_step() {
+        assert_eq!(
+            call_builtin(
+                "range",
+                vec![Value::Int(10), Value::Int(0), Value::Int(-2)],
+                &loc(),
+                ""
+            )
+            .unwrap(),
+            Value::Array(vec![
+                Value::Int(10),
+                Value::Int(8),
+                Value::Int(6),
+                Value::Int(4),
+                Value::Int(2)
+            ])
+        );
+    }
+
+    #[test]
+    fn test_range_zero_step_errors() {
+        let result = call_builtin(
+            "range",
+            vec![Value::Int(0), Value::Int(10), Value::Int(0)],
+            &loc(),
+            "",
+        );
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_join_requires_string_elements() {
+        let arr = Value::Array(vec![Value::Int(1), Value::Int(2)]);
+        let result = call_builtin("join", vec![arr, Value::String(",".into())], &loc(), "");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_sort_mixed_types_no_crash() {
+        let arr = Value::Array(vec![
+            Value::Int(1),
+            Value::String("a".into()),
+            Value::Bool(true),
+        ]);
+        let result = call_builtin("sort", vec![arr], &loc(), "");
+        // Should not panic - either returns sorted or error, but no crash
+        assert!(result.is_ok() || result.is_err());
+    }
 }

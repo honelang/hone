@@ -2177,4 +2177,240 @@ extra: "allowed"
             "open schema should still validate defined fields"
         );
     }
+
+    // --- Group 1: Error Code Coverage ---
+
+    #[test]
+    fn test_error_import_file_not_found() {
+        let dir = TempDir::new().unwrap();
+        create_test_files(
+            dir.path(),
+            &[(
+                "main.hone",
+                r#"
+import "./missing.hone" as missing
+val: missing.x
+"#,
+            )],
+        );
+
+        let result = compile_file(dir.path().join("main.hone"));
+        assert!(result.is_err(), "importing missing file should fail");
+        let err = result.unwrap_err();
+        assert!(
+            matches!(
+                err,
+                HoneError::ImportNotFound { .. } | HoneError::IoError { .. }
+            ),
+            "expected import/io error, got: {:?}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_error_multiple_from_declarations() {
+        let dir = TempDir::new().unwrap();
+        create_test_files(
+            dir.path(),
+            &[
+                ("base1.hone", "a: 1\n"),
+                ("base2.hone", "b: 2\n"),
+                (
+                    "main.hone",
+                    "from \"./base1.hone\"\nfrom \"./base2.hone\"\nc: 3\n",
+                ),
+            ],
+        );
+
+        let result = compile_file(dir.path().join("main.hone"));
+        assert!(result.is_err(), "multiple from declarations should fail");
+        let err = result.unwrap_err();
+        assert!(
+            matches!(err, HoneError::MultipleFrom { .. }),
+            "expected MultipleFrom, got: {:?}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_from_in_multidoc_preamble() {
+        let dir = TempDir::new().unwrap();
+        create_test_files(
+            dir.path(),
+            &[
+                ("base.hone", "x: 1\n"),
+                (
+                    "main.hone",
+                    "from \"./base.hone\"\n\n---doc1\na: 1\n\n---doc2\nb: 2\n",
+                ),
+            ],
+        );
+
+        let result = compile_file(dir.path().join("main.hone"));
+        // This should either error with FromInPreamble or behave in some documented way
+        // We're testing to document the actual behavior
+        if result.is_err() {
+            let err = result.unwrap_err();
+            assert!(
+                matches!(err, HoneError::FromInPreamble { .. }),
+                "expected FromInPreamble, got: {:?}",
+                err
+            );
+        }
+        // If it succeeds, that documents that `from` in multi-doc preamble is accepted
+    }
+
+    // --- Group 7: Multi-file Compiler Tests ---
+
+    #[test]
+    fn test_from_child_overrides_base() {
+        let dir = TempDir::new().unwrap();
+        create_test_files(
+            dir.path(),
+            &[
+                (
+                    "base.hone",
+                    r#"
+port: 80
+host: "base.example.com"
+"#,
+                ),
+                (
+                    "child.hone",
+                    r#"
+from "./base.hone"
+port: 9090
+"#,
+                ),
+            ],
+        );
+
+        let result = compile_file(dir.path().join("child.hone")).unwrap();
+        assert_eq!(
+            result.get_path(&["port"]),
+            Some(&Value::Int(9090)),
+            "child should override base port"
+        );
+        assert_eq!(
+            result.get_path(&["host"]),
+            Some(&Value::String("base.example.com".into())),
+            "base host should be preserved"
+        );
+    }
+
+    #[test]
+    fn test_multi_doc_preamble_let_visible() {
+        let dir = TempDir::new().unwrap();
+        create_test_files(
+            dir.path(),
+            &[(
+                "main.hone",
+                r#"
+let app = "myapp"
+
+---deployment
+name: "${app}-deploy"
+
+---service
+name: "${app}-svc"
+"#,
+            )],
+        );
+
+        let canonical = dir.path().join("main.hone").canonicalize().unwrap();
+        let base_dir = canonical.parent().unwrap();
+        let mut compiler = Compiler::new(base_dir);
+        let docs = compiler.compile_multi(&canonical).unwrap();
+        // Multi-doc includes main doc (empty body from preamble) + 2 named docs
+        assert!(
+            docs.len() >= 2,
+            "expected at least 2 documents, got {}",
+            docs.len()
+        );
+        // Find the named documents
+        let deployment = docs
+            .iter()
+            .find(|(name, _)| name.as_deref() == Some("deployment"));
+        let service = docs
+            .iter()
+            .find(|(name, _)| name.as_deref() == Some("service"));
+        assert!(deployment.is_some(), "should have deployment document");
+        assert!(service.is_some(), "should have service document");
+        assert_eq!(
+            deployment.unwrap().1.get_path(&["name"]),
+            Some(&Value::String("myapp-deploy".into()))
+        );
+        assert_eq!(
+            service.unwrap().1.get_path(&["name"]),
+            Some(&Value::String("myapp-svc".into()))
+        );
+    }
+
+    #[test]
+    fn test_compile_with_allow_env() {
+        let dir = TempDir::new().unwrap();
+        create_test_files(
+            dir.path(),
+            &[(
+                "main.hone",
+                r#"
+val: env("PATH")
+"#,
+            )],
+        );
+
+        let canonical = dir.path().join("main.hone").canonicalize().unwrap();
+        let base_dir = canonical.parent().unwrap();
+        let mut compiler = Compiler::new(base_dir);
+        compiler.set_allow_env(true);
+        let result = compiler.compile(&canonical);
+        assert!(
+            result.is_ok(),
+            "env() should work with allow_env on compiler: {:?}",
+            result.err()
+        );
+    }
+
+    #[test]
+    fn test_diamond_import_no_duplicate() {
+        let dir = TempDir::new().unwrap();
+        create_test_files(
+            dir.path(),
+            &[
+                (
+                    "shared.hone",
+                    r#"
+let version = "1.0"
+"#,
+                ),
+                (
+                    "lib_a.hone",
+                    r#"
+import { version } from "./shared.hone"
+let a_version = version
+"#,
+                ),
+                (
+                    "lib_b.hone",
+                    r#"
+import { version } from "./shared.hone"
+let b_version = version
+"#,
+                ),
+                (
+                    "main.hone",
+                    r#"
+import { a_version } from "./lib_a.hone"
+import { b_version } from "./lib_b.hone"
+a: a_version
+b: b_version
+"#,
+                ),
+            ],
+        );
+
+        let result = compile_file(dir.path().join("main.hone")).unwrap();
+        assert_eq!(result.get_path(&["a"]), Some(&Value::String("1.0".into())));
+        assert_eq!(result.get_path(&["b"]), Some(&Value::String("1.0".into())));
+    }
 }

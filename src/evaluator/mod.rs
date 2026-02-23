@@ -1885,4 +1885,318 @@ config {
         assert!(locations.contains_key("a.b.c"));
         assert_eq!(locations["a.b.c"].line, 3);
     }
+
+    // --- Group 1: env/file allow_env and recursion tests ---
+
+    fn eval_with_env(source: &str) -> HoneResult<Value> {
+        let mut lexer = Lexer::new(source, None);
+        let tokens = lexer.tokenize()?;
+        let mut parser = Parser::new(tokens, source, None);
+        let ast = parser.parse()?;
+        let mut evaluator = Evaluator::new(source);
+        evaluator.set_allow_env(true);
+        evaluator.evaluate(&ast)
+    }
+
+    #[test]
+    fn test_env_requires_allow_env() {
+        let result = eval(r#"val: env("PATH")"#);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(matches!(err, HoneError::EnvNotAllowed { .. }));
+    }
+
+    #[test]
+    fn test_file_requires_allow_env() {
+        let result = eval(r#"val: file("nonexistent.txt")"#);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(matches!(err, HoneError::EnvNotAllowed { .. }));
+    }
+
+    #[test]
+    fn test_env_works_when_allowed() {
+        let result = eval_with_env(r#"val: env("PATH")"#);
+        assert!(
+            result.is_ok(),
+            "env() should work with allow_env: {:?}",
+            result.err()
+        );
+        if let Some(Value::String(s)) = result.unwrap().get_path(&["val"]) {
+            assert!(!s.is_empty(), "PATH should be non-empty");
+        } else {
+            panic!("expected string value for PATH");
+        }
+    }
+
+    #[test]
+    fn test_recursion_limit_exceeded() {
+        // Directly test the depth check by pre-setting depth near the limit
+        // and evaluating a simple expression
+        use crate::lexer::token::SourceLocation;
+        use crate::parser::ast::{BinaryExpr, BinaryOp, Expr};
+
+        let source = "test";
+        let mut evaluator = Evaluator::new(source);
+        // Set depth to just below MAX_EVAL_DEPTH
+        evaluator.depth = MAX_EVAL_DEPTH;
+
+        let loc = SourceLocation::new(None, 1, 1, 0, 4);
+        let simple_expr = Expr::Integer(1, loc);
+        let result = evaluator.eval_expr(&simple_expr);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(
+            matches!(err, HoneError::RecursionLimitExceeded { .. }),
+            "expected RecursionLimitExceeded, got: {:?}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_for_at_top_level_is_valid() {
+        // for at body level generates key-value pairs into the output object
+        let result = eval(r#"for x in [1, 2] { "k${x}": x }"#);
+        assert!(
+            result.is_ok(),
+            "for at body level should be valid: {:?}",
+            result.err()
+        );
+        let val = result.unwrap();
+        assert_eq!(val.get_path(&["k1"]), Some(&Value::Int(1)));
+        assert_eq!(val.get_path(&["k2"]), Some(&Value::Int(2)));
+    }
+
+    // --- Group 3: String Interpolation Edge Cases ---
+
+    #[test]
+    fn test_interpolation_null_renders_as_null_string() {
+        let result = eval("let x = null\nval: \"prefix-${x}\"").unwrap();
+        assert_eq!(
+            result.get_path(&["val"]),
+            Some(&Value::String("prefix-null".into()))
+        );
+    }
+
+    #[test]
+    fn test_interpolation_array_uses_display() {
+        let result = eval("let arr = [1, 2, 3]\nval: \"items: ${arr}\"").unwrap();
+        assert_eq!(
+            result.get_path(&["val"]),
+            Some(&Value::String("items: [1, 2, 3]".into()))
+        );
+    }
+
+    #[test]
+    fn test_interpolation_object_uses_display() {
+        let result = eval("let obj = { a: 1 }\nval: \"data: ${obj}\"").unwrap();
+        assert_eq!(
+            result.get_path(&["val"]),
+            Some(&Value::String("data: {a: 1}".into()))
+        );
+    }
+
+    #[test]
+    fn test_interpolation_bool_renders() {
+        let result = eval("let b = true\nval: \"flag: ${b}\"").unwrap();
+        assert_eq!(
+            result.get_path(&["val"]),
+            Some(&Value::String("flag: true".into()))
+        );
+    }
+
+    #[test]
+    fn test_interpolation_float_trailing_dot_zero() {
+        let result = eval("let f = 2.0\nval: \"${f}\"").unwrap();
+        assert_eq!(
+            result.get_path(&["val"]),
+            Some(&Value::String("2.0".into()))
+        );
+    }
+
+    // --- Group 4: Arithmetic & Numeric Edge Cases ---
+
+    #[test]
+    fn test_null_arithmetic_type_mismatch() {
+        let result = eval("let x = null\nval: x + 1");
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(matches!(err, HoneError::TypeMismatch { .. }));
+    }
+
+    #[test]
+    fn test_float_overflow_produces_infinity() {
+        let result = eval("val: 1.0e308 * 10.0").unwrap();
+        match result.get_path(&["val"]) {
+            Some(Value::Float(f)) => assert!(f.is_infinite(), "expected infinity, got {}", f),
+            other => panic!("expected Float, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_int_float_mixed_comparison() {
+        let result = eval("a: 1 < 2.0\nb: 1.0 == 1").unwrap();
+        assert_eq!(result.get_path(&["a"]), Some(&Value::Bool(true)));
+        assert_eq!(result.get_path(&["b"]), Some(&Value::Bool(true)));
+    }
+
+    #[test]
+    fn test_comparison_bool_vs_int_errors() {
+        let result = eval("val: true < 2");
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(matches!(err, HoneError::TypeMismatch { .. }));
+    }
+
+    #[test]
+    fn test_integer_overflow_subtraction() {
+        // i64::MIN is -9223372036854775808, subtracting 1 should overflow
+        let result = eval("val: (-9223372036854775807 - 1) - 1");
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(
+            matches!(err, HoneError::ArithmeticOverflow { .. }),
+            "expected ArithmeticOverflow, got: {:?}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_ternary_right_associativity() {
+        // false ? 1 : true ? 2 : 3  should parse as  false ? 1 : (true ? 2 : 3) = 2
+        let result = eval("val: false ? 1 : true ? 2 : 3").unwrap();
+        assert_eq!(result.get_path(&["val"]), Some(&Value::Int(2)));
+    }
+
+    #[test]
+    fn test_comparison_chaining_is_error() {
+        // 1 < 2 evaluates to true, then true < 3 is a type error
+        let result = eval("val: 1 < 2 < 3");
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(matches!(err, HoneError::TypeMismatch { .. }));
+    }
+
+    // --- Group 5: Collection & Indexing Edge Cases ---
+
+    #[test]
+    fn test_for_loop_empty_array() {
+        let result = eval("val: for x in [] { x }").unwrap();
+        assert_eq!(result.get_path(&["val"]), Some(&Value::Array(vec![])));
+    }
+
+    #[test]
+    fn test_for_loop_empty_object() {
+        let result = eval("val: for (k, v) in {} { k }").unwrap();
+        assert_eq!(result.get_path(&["val"]), Some(&Value::Array(vec![])));
+    }
+
+    #[test]
+    fn test_array_index_out_of_bounds() {
+        let result = eval("let arr = [10, 20]\nval: arr[5]");
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(matches!(err, HoneError::TypeMismatch { .. }));
+    }
+
+    #[test]
+    fn test_missing_object_key_returns_null() {
+        let result = eval("let obj = { a: 1 }\nval: obj.nonexistent").unwrap();
+        assert_eq!(result.get_path(&["val"]), Some(&Value::Null));
+    }
+
+    #[test]
+    fn test_spread_empty_object() {
+        let result = eval("let empty = {}\n...empty\na: 1").unwrap();
+        assert_eq!(result.get_path(&["a"]), Some(&Value::Int(1)));
+    }
+
+    #[test]
+    fn test_nested_for_in_expression() {
+        // Nested for in array expression position produces array of arrays
+        let source = r#"
+let inner = for j in [10, 20] { j * 2 }
+val: for i in [1, 2] {
+    i + inner[0]
+}
+"#;
+        let result = eval(source).unwrap();
+        if let Some(Value::Array(arr)) = result.get_path(&["val"]) {
+            assert_eq!(arr.len(), 2);
+            assert_eq!(arr[0], Value::Int(21)); // 1 + 20
+            assert_eq!(arr[1], Value::Int(22)); // 2 + 20
+        } else {
+            panic!("expected array");
+        }
+    }
+
+    #[test]
+    fn test_empty_object_is_falsy() {
+        let result = eval("let x = {}\nwhen x {\n  a: 1\n}").unwrap();
+        // When condition is falsy (empty object), body should not execute
+        assert_eq!(result.get_path(&["a"]), None);
+    }
+
+    #[test]
+    fn test_empty_array_is_falsy() {
+        let result = eval("let x = []\nwhen x {\n  a: 1\n}").unwrap();
+        assert_eq!(result.get_path(&["a"]), None);
+    }
+
+    // --- Group 6: Merge & Override Behaviors ---
+
+    #[test]
+    fn test_array_merge_replaces_not_concatenates() {
+        let result = eval("items: [1, 2]\nitems: [3, 4]").unwrap();
+        assert_eq!(
+            result.get_path(&["items"]),
+            Some(&Value::Array(vec![Value::Int(3), Value::Int(4)]))
+        );
+    }
+
+    #[test]
+    fn test_deep_merge_type_mismatch_overlay_wins() {
+        // When a key has an object then gets a scalar, scalar wins
+        let result =
+            eval("config {\n  server {\n    port: 80\n  }\n}\nconfig {\n  server: \"replaced\"\n}")
+                .unwrap();
+        assert_eq!(
+            result.get_path(&["config", "server"]),
+            Some(&Value::String("replaced".into()))
+        );
+    }
+
+    #[test]
+    fn test_append_operator_to_array() {
+        let result = eval("items: [1, 2]\nitems +: [3, 4]").unwrap();
+        assert_eq!(
+            result.get_path(&["items"]),
+            Some(&Value::Array(vec![
+                Value::Int(1),
+                Value::Int(2),
+                Value::Int(3),
+                Value::Int(4)
+            ]))
+        );
+    }
+
+    #[test]
+    fn test_function_param_shadows_outer() {
+        let source = r#"
+fn double(x) { x * 2 }
+let x = 100
+a: double(5)
+b: x
+"#;
+        let result = eval(source).unwrap();
+        assert_eq!(result.get_path(&["a"]), Some(&Value::Int(10)));
+        assert_eq!(result.get_path(&["b"]), Some(&Value::Int(100)));
+    }
+
+    #[test]
+    fn test_when_no_match_produces_no_keys() {
+        let result = eval("when false {\n  x: 1\n  y: 2\n}").unwrap();
+        assert_eq!(result.get_path(&["x"]), None);
+        assert_eq!(result.get_path(&["y"]), None);
+    }
 }
