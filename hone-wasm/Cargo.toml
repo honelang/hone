@@ -1,6 +1,6 @@
 [package]
 name = "hone-wasm"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 description = "WASM bindings for the Hone configuration language"
 license = "MIT"

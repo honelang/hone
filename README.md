@@ -4,7 +4,7 @@
 
 [Getting Started](docs/getting-started.md) | [Language Reference](docs/language-reference.md) | [CLI Reference](docs/cli-reference.md) | [Playground](https://honelang.github.io/hone/)
 
-```hone
+```hcl
 let app = "api"
 let env = "production"
 let replicas = env == "production" ? 3 : 1
@@ -136,7 +136,7 @@ items:
 
 ### Variables and String Interpolation
 
-```hone
+```hcl
 let env = "prod"
 let port = 8080
 
@@ -146,7 +146,7 @@ computed: port + 1000
 
 Multiline strings use triple quotes and support interpolation. The YAML emitter renders them with `|` block style:
 
-```hone
+```hcl
 let app = "myapp"
 
 script: """
@@ -160,14 +160,14 @@ script: """
 
 Ternary expressions for inline values:
 
-```hone
+```hcl
 let env = "production"
 replicas: env == "production" ? 3 : 1
 ```
 
 `when` blocks for conditional sections that merge into the parent:
 
-```hone
+```hcl
 server {
   host: "localhost"
   port: 8080
@@ -183,7 +183,7 @@ server {
 
 Array and object comprehensions with `for..in`:
 
-```hone
+```hcl
 # Generate an array
 ports: for p in [80, 443, 8080] { p }
 
@@ -203,7 +203,7 @@ ids: for i in range(0, 5) { "worker-${i}" }
 
 ### Imports and Composition
 
-```hone
+```hcl
 # Import a module
 import "./config.hone" as config
 port: config.default_port
@@ -222,7 +222,7 @@ server {
 
 When the same key appears twice, objects are recursively merged. Scalars and arrays are replaced:
 
-```hone
+```hcl
 # base.hone
 config {
   server {
@@ -247,7 +247,7 @@ config {
 
 Use `+:` to append to arrays and `!:` to force-replace instead of merging:
 
-```hone
+```hcl
 items +: ["extra"]               # appends to existing array
 config !: { completely: "new" }  # replaces entire object, no merge
 ```
@@ -256,7 +256,7 @@ config !: { completely: "new" }  # replaces entire object, no merge
 
 Define environment-specific blocks selected at compile time with `--variant`:
 
-```hone
+```hcl
 variant env {
   default dev {
     replicas: 1
@@ -299,7 +299,7 @@ The `default` keyword marks the case used when `--variant` is not specified. Wit
 
 Define schemas to validate output at compile time:
 
-```hone
+```hcl
 type Port = int(1, 65535)
 
 schema Server {
@@ -318,7 +318,7 @@ name: "production-api"
 
 Schemas are **closed by default** -- extra fields are rejected. Use `...` to allow additional fields:
 
-```hone
+```hcl
 schema Flexible {
   name: string
   port: int
@@ -337,7 +337,7 @@ TypeMismatch: expected int(1, 65535), found int (value: 99999)
 
 Hone ships with a pre-built schema library for common Kubernetes resource types in `lib/k8s/`. Import the schemas to get compile-time validation of your K8s manifests:
 
-```hone
+```hcl
 import "../lib/k8s/v1.30/apps.hone" as apps
 import "../lib/k8s/v1.30/core.hone" as core
 
@@ -371,7 +371,7 @@ python3 scripts/generate-k8s-schemas.py --version 1.31
 
 Runtime constraints that fail the build if violated:
 
-```hone
+```hcl
 let port = 8080
 assert port > 0 && port < 65536 : "invalid port: ${port}"
 
@@ -383,7 +383,7 @@ assert contains(["dev", "staging", "production"], env) : "unknown environment: $
 
 Use `---name` separators to produce multiple output files from a single source:
 
-```hone
+```hcl
 let app = "myapp"
 let env = "production"
 
@@ -407,7 +407,7 @@ hone compile k8s.hone --output-dir ./manifests --format yaml
 
 First-class secret placeholders that never leak into compiled output:
 
-```hone
+```hcl
 secret db_password from "vault:secret/data/db#password"
 secret api_key from "env:API_KEY"
 
@@ -423,7 +423,7 @@ Control resolution with `--secrets-mode`: `placeholder` (default), `error` (fail
 
 Output validation rules checked after compilation:
 
-```hone
+```hcl
 policy no_debug deny when output.debug == true {
   "debug must be disabled in production"
 }
